@@ -449,6 +449,171 @@ class CampaignMonitorImportService
         ]);
     }
 
+    public function createImportLogForFile($filePath)
+    {
+        $fileHash = hash_file('sha256', $filePath);
+        return $this->createImportLog(basename($filePath), $fileHash);
+    }
+
+    /**
+     * Import CSV with progress callback for real-time updates
+     * Memory-efficient streaming implementation
+     */
+    public function importFromCsvWithProgress($filePath, $logId, callable $progressCallback)
+    {
+        try {
+            // Optimize for large files
+            set_time_limit(0);
+            ini_set('memory_limit', '512M'); // Lower memory limit with streaming
+            gc_enable(); // Enable garbage collection
+
+            if (!file_exists($filePath) || !is_readable($filePath)) {
+                throw new Exception("File not found or not readable: {$filePath}");
+            }
+
+            $this->log = CmImportLog::find($logId);
+            if (!$this->log) {
+                throw new Exception("Import log not found");
+            }
+
+            $this->log->markAsStarted();
+
+            // Send initial status
+            $progressCallback([
+                'type' => 'status',
+                'message' => 'Opening file...',
+                'percentage' => 0
+            ]);
+
+            $handle = fopen($filePath, 'r');
+            if (!$handle) {
+                throw new Exception("Cannot open file: {$filePath}");
+            }
+
+            $originalHeaders = fgetcsv($handle);
+            if (!$originalHeaders) {
+                fclose($handle);
+                throw new Exception("Cannot read CSV headers");
+            }
+
+            $originalHeaders = array_map('trim', $originalHeaders);
+            $headers = $this->normalizeHeaders($originalHeaders);
+
+            // Quick row count
+            $progressCallback([
+                'type' => 'status',
+                'message' => 'Counting rows...',
+                'percentage' => 0
+            ]);
+
+            $totalRows = $this->countCsvRows($filePath) - 1;
+            $this->log->update(['total_rows' => $totalRows]);
+
+            $customFields = $this->detectCustomFields($headers);
+            $this->log->update(['custom_fields_detected' => $customFields]);
+
+            $progressCallback([
+                'type' => 'status',
+                'message' => "Processing {$totalRows} rows...",
+                'percentage' => 0,
+                'total_rows' => $totalRows
+            ]);
+
+            // Process in small batches to reduce memory
+            $batchSize = 100; // Smaller batches for better progress updates
+            $batch = [];
+            $rowNumber = 1;
+            $lastProgressUpdate = 0;
+
+            while (($row = fgetcsv($handle)) !== false) {
+                $rowNumber++;
+
+                if (count($row) !== count($headers)) {
+                    $this->log->incrementFailed();
+                    continue;
+                }
+
+                $rowData = array_combine($headers, array_map('trim', $row));
+
+                if ($this->isEmptyRow($rowData) || empty($rowData['email'])) {
+                    $this->log->incrementFailed();
+                    continue;
+                }
+
+                $batch[] = $rowData;
+
+                if (count($batch) >= $batchSize) {
+                    $this->processBatch($batch);
+                    $batch = [];
+
+                    // Force garbage collection every few batches
+                    if ($rowNumber % 500 === 0) {
+                        gc_collect_cycles();
+                    }
+
+                    // Send progress update (every 5% or every 100 rows)
+                    $percentage = ($this->log->processed_rows / $totalRows) * 100;
+                    if ($percentage - $lastProgressUpdate >= 5 || $this->log->processed_rows % 100 === 0) {
+                        $progressCallback([
+                            'type' => 'progress',
+                            'percentage' => round($percentage, 1),
+                            'processed_rows' => $this->log->processed_rows,
+                            'total_rows' => $totalRows,
+                            'created_count' => $this->log->created_count,
+                            'updated_count' => $this->log->updated_count,
+                            'failed_count' => $this->log->failed_count,
+                            'memory_usage' => round(memory_get_usage(true) / 1024 / 1024, 2) . ' MB'
+                        ]);
+                        $lastProgressUpdate = $percentage;
+                    }
+                }
+            }
+
+            // Process remaining batch
+            if (!empty($batch)) {
+                $this->processBatch($batch);
+            }
+
+            fclose($handle);
+            $this->log->markAsCompleted();
+
+            // Final progress update
+            $progressCallback([
+                'type' => 'progress',
+                'percentage' => 100,
+                'processed_rows' => $this->log->processed_rows,
+                'total_rows' => $totalRows,
+                'created_count' => $this->log->created_count,
+                'updated_count' => $this->log->updated_count,
+                'failed_count' => $this->log->failed_count,
+                'memory_usage' => round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB'
+            ]);
+
+            return [
+                'success' => true,
+                'log' => $this->log,
+                'message' => "Import completed successfully. Processed {$this->log->processed_rows} rows."
+            ];
+
+        } catch (Exception $e) {
+            if ($this->log) {
+                $this->log->markAsFailed(['error' => $e->getMessage()]);
+            }
+
+            Log::error('Campaign Monitor import failed', [
+                'error' => $e->getMessage(),
+                'file' => $filePath,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'log' => $this->log
+            ];
+        }
+    }
+
     protected function logError($message)
     {
         if ($this->config['log_failed_rows'] ?? true) {
