@@ -44,6 +44,10 @@ Route::prefix('campaign-monitor')->name('campaign-monitor.')->group(function () 
     // Import progress route (uses controller to bypass layout)
     Route::get('/import-progress/{importId}', [CampaignMonitorImportController::class, 'progress'])
         ->name('import-progress');
+
+    // Start import in background (returns immediately)
+    Route::post('/start-import/{importId}', [CampaignMonitorImportController::class, 'startImport'])
+        ->name('start-import');
 });
 
 require __DIR__.'/auth.php';

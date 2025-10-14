@@ -1,8 +1,23 @@
 <div class="min-h-screen py-8 bg-gray-50"
      wire:poll.1s="refreshImport"
-     @if($import && $import->status === 'pending' && !$isProcessing)
-     wire:init="startImport"
-     @endif>
+     x-data="{ started: false }"
+     x-init="
+         @if($import && $import->status === 'pending' && !$isProcessing)
+         if (!started) {
+             started = true;
+             // Wait for page to fully load, then trigger import in background
+             setTimeout(() => {
+                 fetch('{{ route('campaign-monitor.start-import', $importId) }}', {
+                     method: 'POST',
+                     headers: {
+                         'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                         'Accept': 'application/json'
+                     }
+                 }).catch(e => console.error('Failed to start import:', e));
+             }, 100);
+         }
+         @endif
+     ">
 
     <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <!-- Header -->

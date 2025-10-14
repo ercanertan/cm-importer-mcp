@@ -157,4 +157,50 @@ class CampaignMonitorImportController extends Controller
             'import' => $import
         ]);
     }
+
+    public function startImport($importId)
+    {
+        $import = $this->importService->getImportById($importId);
+
+        if (!$import || $import->status !== 'pending') {
+            return response()->json(['error' => 'Import not found or already started'], 400);
+        }
+
+        try {
+            $fullPath = Storage::path($import->storage_path);
+
+            // Mark as processing
+            $import->update(['status' => 'processing']);
+
+            // Detect PHP binary
+            $phpPath = file_exists('/usr/bin/php') ? '/usr/bin/php' : PHP_BINARY;
+            if (str_contains($phpPath, 'fpm')) {
+                $phpPath = str_replace('-fpm', '', $phpPath);
+            }
+
+            $logFile = storage_path('logs/import-' . $importId . '.log');
+            $command = sprintf(
+                'cd %s && nohup %s artisan campaign-monitor:process-import %s %d > %s 2>&1 &',
+                escapeshellarg(base_path()),
+                escapeshellarg($phpPath),
+                escapeshellarg($fullPath),
+                $importId,
+                escapeshellarg($logFile)
+            );
+
+            // Execute in background
+            exec($command);
+
+            \Log::info('Started import via controller', [
+                'import_id' => $importId,
+                'command' => $command
+            ]);
+
+            return response()->json(['success' => true]);
+
+        } catch (\Exception $e) {
+            $import->markAsFailed(['error' => $e->getMessage()]);
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
 }
