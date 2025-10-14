@@ -9,6 +9,7 @@ class CmImportLog extends Model
     protected $fillable = [
         'filename',
         'file_hash',
+        'storage_path',
         'status',
         'total_rows',
         'total_chunks',
@@ -79,22 +80,27 @@ class CmImportLog extends Model
 
     public function incrementProcessed()
     {
-        $this->increment('processed_rows');
+        $this->refresh();
+        $this->processed_rows++;
+        $this->save();
     }
 
     public function incrementCreated()
     {
-        $this->increment('created_count');
+        $this->created_count++;
+        // Don't save here, will be saved with processed_rows
     }
 
     public function incrementUpdated()
     {
-        $this->increment('updated_count');
+        $this->updated_count++;
+        // Don't save here, will be saved with processed_rows
     }
 
     public function incrementFailed()
     {
-        $this->increment('failed_count');
+        $this->failed_count++;
+        // Don't save here, will be saved with processed_rows
     }
 
     public function getProgressPercentageAttribute()

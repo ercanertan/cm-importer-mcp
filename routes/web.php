@@ -40,7 +40,10 @@ Route::prefix('campaign-monitor')->name('campaign-monitor.')->group(function () 
     Route::get('/import/{id}', [CampaignMonitorImportController::class, 'show'])->name('show');
     Route::post('/preview', [CampaignMonitorImportController::class, 'preview'])->name('preview');
     Route::get('/status/{id}', [CampaignMonitorImportController::class, 'status'])->name('status');
-    Route::get('/stream-import', [CampaignMonitorImportController::class, 'streamImport'])->name('stream-import');
+
+    // Import progress route (uses controller to bypass layout)
+    Route::get('/import-progress/{importId}', [CampaignMonitorImportController::class, 'progress'])
+        ->name('import-progress');
 });
 
 require __DIR__.'/auth.php';

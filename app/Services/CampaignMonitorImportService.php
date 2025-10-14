@@ -195,18 +195,35 @@ class CampaignMonitorImportService
             return $this->processBatchWithPDO($batch);
         }
 
+        // Track counters for this batch
+        $batchCreated = 0;
+        $batchUpdated = 0;
+        $batchFailed = 0;
+
         // Use Eloquent for smaller batches (maintains full model features)
-        DB::transaction(function () use ($batch) {
+        DB::transaction(function () use ($batch, &$batchCreated, &$batchUpdated, &$batchFailed) {
             foreach ($batch as $rowData) {
                 try {
-                    $this->processRow($rowData);
-                    $this->log->incrementProcessed();
+                    $result = $this->processRow($rowData);
+                    if ($result === 'created') {
+                        $batchCreated++;
+                    } elseif ($result === 'updated') {
+                        $batchUpdated++;
+                    }
                 } catch (Exception $e) {
-                    $this->log->incrementFailed();
+                    $batchFailed++;
                     $this->logError("Failed to process row: " . $e->getMessage());
                 }
             }
         });
+
+        // Update counters after transaction completes
+        $this->log->refresh();
+        $this->log->processed_rows += count($batch);
+        $this->log->created_count += $batchCreated;
+        $this->log->updated_count += $batchUpdated;
+        $this->log->failed_count += $batchFailed;
+        $this->log->save();
     }
 
     protected function processBatchWithPDO($batch)
@@ -254,7 +271,13 @@ class CampaignMonitorImportService
             }
 
             $pdo->commit();
+
+            // Refresh model to avoid "Table definition has changed" error
+            $this->log->refresh();
+
+            // Update counters in database
             $this->log->processed_rows += count($batch);
+            $this->log->save();
 
         } catch (Exception $e) {
             $pdo->rollBack();
@@ -296,7 +319,8 @@ class CampaignMonitorImportService
             }
 
             $user->save();
-            $this->log->incrementCreated();
+            $this->processCustomFields($user, $rowData);
+            return 'created';
         } else {
             $updated = false;
 
@@ -345,11 +369,11 @@ class CampaignMonitorImportService
 
             if ($updated) {
                 $user->save();
-                $this->log->incrementUpdated();
             }
-        }
 
-        $this->processCustomFields($user, $rowData);
+            $this->processCustomFields($user, $rowData);
+            return $updated ? 'updated' : 'skipped';
+        }
     }
 
     protected function processCustomFields($user, $rowData)
@@ -449,10 +473,15 @@ class CampaignMonitorImportService
         ]);
     }
 
-    public function createImportLogForFile($filePath)
+    public function createImportLogForFile($filePath, $storagePath = null)
     {
         $fileHash = hash_file('sha256', $filePath);
-        return $this->createImportLog(basename($filePath), $fileHash);
+        return CmImportLog::create([
+            'filename' => basename($filePath),
+            'file_hash' => $fileHash,
+            'storage_path' => $storagePath,
+            'status' => 'pending'
+        ]);
     }
 
     /**
@@ -752,11 +781,16 @@ class CampaignMonitorImportService
     public function importFromCsvChunked($filePath, $logId = null)
     {
         try {
+            // Memory optimizations for large files
+            set_time_limit(0);
+            ini_set('memory_limit', '512M');
+            gc_enable();
+
             if (!file_exists($filePath) || !is_readable($filePath)) {
                 throw new Exception("File not found or not readable: {$filePath}");
             }
 
-            // Generate file hash for tracking (but don't prevent duplicates)
+            // Generate file hash for tracking
             $fileHash = hash_file('sha256', $filePath);
 
             $this->log = $logId ? CmImportLog::find($logId) : $this->createImportLog(basename($filePath), $fileHash);
@@ -776,69 +810,57 @@ class CampaignMonitorImportService
             $headers = $this->normalizeHeaders($originalHeaders);
             $totalRows = $this->countCsvRows($filePath) - 1;
 
-            // Configure for chunked processing
-            $chunkSize = $this->config['queue_chunk_size'] ?? 5000; // 5K records per chunk
-            $totalChunks = ceil($totalRows / $chunkSize);
-
+            $customFields = $this->detectCustomFields($headers);
             $this->log->update([
                 'total_rows' => $totalRows,
-                'total_chunks' => $totalChunks,
-                'is_chunked' => true,
-                'custom_fields_detected' => $this->detectCustomFields($headers)
+                'custom_fields_detected' => $customFields
             ]);
 
-            // Read and dispatch chunks
-            $chunkNumber = 1;
-            $currentChunk = [];
+            // Process in small batches for memory efficiency
+            $batchSize = 100; // Smaller batches for better progress updates
+            $batch = [];
+            $rowNumber = 1;
 
             while (($row = fgetcsv($handle)) !== false) {
+                $rowNumber++;
+
                 if (count($row) !== count($headers)) {
-                    continue; // Skip malformed rows
+                    $this->log->incrementFailed();
+                    continue;
                 }
 
                 $rowData = array_combine($headers, array_map('trim', $row));
 
                 if ($this->isEmptyRow($rowData) || empty($rowData['email'])) {
-                    continue; // Skip empty rows
+                    $this->log->incrementFailed();
+                    continue;
                 }
 
-                $currentChunk[] = $rowData;
+                $batch[] = $rowData;
 
-                if (count($currentChunk) >= $chunkSize) {
-                    // Dispatch chunk job
-                    \App\Jobs\ProcessCsvChunkJob::dispatch(
-                        $currentChunk,
-                        $headers,
-                        $this->log->id,
-                        $chunkNumber,
-                        $totalChunks
-                    );
+                if (count($batch) >= $batchSize) {
+                    $this->processBatch($batch);
+                    $batch = [];
 
-                    $currentChunk = [];
-                    $chunkNumber++;
+                    // Garbage collect every 500 rows
+                    if ($rowNumber % 500 === 0) {
+                        gc_collect_cycles();
+                    }
                 }
             }
 
-            // Dispatch remaining records
-            if (!empty($currentChunk)) {
-                \App\Jobs\ProcessCsvChunkJob::dispatch(
-                    $currentChunk,
-                    $headers,
-                    $this->log->id,
-                    $chunkNumber,
-                    $totalChunks
-                );
+            // Process remaining batch
+            if (!empty($batch)) {
+                $this->processBatch($batch);
             }
 
             fclose($handle);
-
-            $this->log->update(['status' => 'queued']);
+            $this->log->markAsCompleted();
 
             return [
                 'success' => true,
                 'log' => $this->log,
-                'message' => "Import queued successfully. {$totalChunks} chunks dispatched for processing.",
-                'total_chunks' => $totalChunks
+                'message' => "Import completed successfully. Processed {$this->log->processed_rows} rows."
             ];
 
         } catch (Exception $e) {
@@ -846,7 +868,7 @@ class CampaignMonitorImportService
                 $this->log->markAsFailed(['error' => $e->getMessage()]);
             }
 
-            Log::error('Campaign Monitor chunked import failed', [
+            Log::error('Campaign Monitor import failed', [
                 'error' => $e->getMessage(),
                 'file' => $filePath,
                 'trace' => $e->getTraceAsString()

@@ -13,6 +13,7 @@ return new class extends Migration
     {
         Schema::table('cm_import_logs', function (Blueprint $table) {
             $table->string('file_hash', 64)->nullable()->after('filename');
+            $table->string('storage_path')->nullable()->after('file_hash');
             $table->index('file_hash');
         });
     }
@@ -23,8 +24,13 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('cm_import_logs', function (Blueprint $table) {
-            $table->dropIndex(['file_hash']);
-            $table->dropColumn('file_hash');
+            // Drop columns if they exist (indexes are automatically dropped with columns)
+            if (Schema::hasColumn('cm_import_logs', 'file_hash')) {
+                $table->dropColumn('file_hash');
+            }
+            if (Schema::hasColumn('cm_import_logs', 'storage_path')) {
+                $table->dropColumn('storage_path');
+            }
         });
     }
 };
