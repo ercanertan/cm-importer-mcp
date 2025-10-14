@@ -14,8 +14,9 @@ class ImportCampaignMonitorCsvJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 3600;
+    public $timeout = 7200; // 2 hours for very large files
     public $tries = 1;
+    public $maxExceptions = 1;
 
     protected $filePath;
     protected $logId;
@@ -36,20 +37,44 @@ class ImportCampaignMonitorCsvJob implements ShouldQueue
     public function handle(CampaignMonitorImportService $importService): void
     {
         try {
+            // Optimize memory and performance for large imports
+            ini_set('memory_limit', '2G');
+
             Log::info('Starting Campaign Monitor CSV import job', [
                 'file' => $this->filePath,
-                'log_id' => $this->logId
+                'log_id' => $this->logId,
+                'queue' => $this->queue,
+                'memory_limit' => ini_get('memory_limit')
             ]);
 
-            $result = $importService->importFromCsv($this->filePath, $this->logId);
+            $startTime = microtime(true);
+
+            // Check file size to determine if we should use chunked processing
+            $rowCount = $this->estimateRowCount($this->filePath);
+            $chunkThreshold = config('campaign-monitor.queue_chunk_size', 5000);
+
+            if ($rowCount > $chunkThreshold) {
+                Log::info("Large file detected ({$rowCount} rows), using chunked processing");
+                $result = $importService->importFromCsvChunked($this->filePath, $this->logId);
+            } else {
+                Log::info("Small file detected ({$rowCount} rows), using direct processing");
+                $result = $importService->importFromCsv($this->filePath, $this->logId);
+            }
+
+            $duration = microtime(true) - $startTime;
 
             if ($result['success']) {
+                $recordsPerSecond = $result['log']->processed_rows / max($duration, 0.001);
+
                 Log::info('Campaign Monitor CSV import job completed successfully', [
                     'file' => $this->filePath,
+                    'duration_seconds' => round($duration, 2),
                     'processed_rows' => $result['log']->processed_rows,
                     'created_count' => $result['log']->created_count,
                     'updated_count' => $result['log']->updated_count,
-                    'failed_count' => $result['log']->failed_count
+                    'failed_count' => $result['log']->failed_count,
+                    'records_per_second' => round($recordsPerSecond, 0),
+                    'memory_peak' => memory_get_peak_usage(true) / 1024 / 1024 . ' MB'
                 ]);
             } else {
                 Log::error('Campaign Monitor CSV import job failed', [
@@ -92,5 +117,20 @@ class ImportCampaignMonitorCsvJob implements ShouldQueue
                 ]);
             }
         }
+    }
+
+    protected function estimateRowCount($filePath)
+    {
+        $handle = fopen($filePath, 'r');
+        $rowCount = 0;
+
+        // Quick estimate by reading file in chunks
+        while (!feof($handle)) {
+            $chunk = fread($handle, 8192);
+            $rowCount += substr_count($chunk, "\n");
+        }
+
+        fclose($handle);
+        return max($rowCount - 1, 0); // Subtract 1 for header
     }
 }

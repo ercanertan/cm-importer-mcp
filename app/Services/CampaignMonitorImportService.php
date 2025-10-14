@@ -8,6 +8,7 @@ use App\Models\CmImportLog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Exception;
+use PDO;
 
 class CampaignMonitorImportService
 {
@@ -184,6 +185,13 @@ class CampaignMonitorImportService
 
     protected function processBatch($batch)
     {
+        // Use high-performance PDO bulk insert for large batches
+        $pdoThreshold = $this->config['pdo_threshold'] ?? 100;
+        if (count($batch) > $pdoThreshold) {
+            return $this->processBatchWithPDO($batch);
+        }
+
+        // Use Eloquent for smaller batches (maintains full model features)
         DB::transaction(function () use ($batch) {
             foreach ($batch as $rowData) {
                 try {
@@ -195,6 +203,61 @@ class CampaignMonitorImportService
                 }
             }
         });
+    }
+
+    protected function processBatchWithPDO($batch)
+    {
+        try {
+            $pdo = DB::getPdo();
+            $pdo->beginTransaction();
+
+            // Separate new users from existing ones
+            $emails = array_column($batch, 'email');
+            $existingUsers = $this->getExistingUsersByEmail($emails);
+
+            $newUsers = [];
+            $updateUsers = [];
+            $customFieldData = [];
+
+            foreach ($batch as $rowData) {
+                $email = $rowData['email'];
+
+                if (isset($existingUsers[$email])) {
+                    $updateUsers[] = $this->prepareUserUpdateData($rowData, $existingUsers[$email]);
+                } else {
+                    $newUsers[] = $this->prepareUserInsertData($rowData);
+                }
+
+                // Collect custom field data
+                $customFieldData = array_merge($customFieldData, $this->prepareCustomFieldData($rowData, $email));
+            }
+
+            // Bulk insert new users
+            if (!empty($newUsers)) {
+                $this->bulkInsertUsers($pdo, $newUsers);
+                $this->log->created_count += count($newUsers);
+            }
+
+            // Bulk update existing users
+            if (!empty($updateUsers)) {
+                $this->bulkUpdateUsers($pdo, $updateUsers);
+                $this->log->updated_count += count($updateUsers);
+            }
+
+            // Process custom fields
+            if (!empty($customFieldData)) {
+                $this->bulkInsertCustomFields($pdo, $customFieldData);
+            }
+
+            $pdo->commit();
+            $this->log->processed_rows += count($batch);
+
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $this->log->failed_count += count($batch);
+            $this->logError("PDO batch processing failed: " . $e->getMessage());
+            throw $e;
+        }
     }
 
     protected function processRow($rowData)
@@ -514,6 +577,379 @@ class CampaignMonitorImportService
         }
 
         return ['valid' => true, 'headers' => $headers];
+    }
+
+    public function importFromCsvChunked($filePath, $logId = null)
+    {
+        try {
+            if (!file_exists($filePath) || !is_readable($filePath)) {
+                throw new Exception("File not found or not readable: {$filePath}");
+            }
+
+            $this->log = $logId ? CmImportLog::find($logId) : $this->createImportLog(basename($filePath));
+            $this->log->markAsStarted();
+
+            $handle = fopen($filePath, 'r');
+            if (!$handle) {
+                throw new Exception("Cannot open file: {$filePath}");
+            }
+
+            $originalHeaders = fgetcsv($handle);
+            if (!$originalHeaders) {
+                throw new Exception("Cannot read CSV headers");
+            }
+
+            $originalHeaders = array_map('trim', $originalHeaders);
+            $headers = $this->normalizeHeaders($originalHeaders);
+            $totalRows = $this->countCsvRows($filePath) - 1;
+
+            // Configure for chunked processing
+            $chunkSize = $this->config['queue_chunk_size'] ?? 5000; // 5K records per chunk
+            $totalChunks = ceil($totalRows / $chunkSize);
+
+            $this->log->update([
+                'total_rows' => $totalRows,
+                'total_chunks' => $totalChunks,
+                'is_chunked' => true,
+                'custom_fields_detected' => $this->detectCustomFields($headers)
+            ]);
+
+            // Read and dispatch chunks
+            $chunkNumber = 1;
+            $currentChunk = [];
+
+            while (($row = fgetcsv($handle)) !== false) {
+                if (count($row) !== count($headers)) {
+                    continue; // Skip malformed rows
+                }
+
+                $rowData = array_combine($headers, array_map('trim', $row));
+
+                if ($this->isEmptyRow($rowData) || empty($rowData['email'])) {
+                    continue; // Skip empty rows
+                }
+
+                $currentChunk[] = $rowData;
+
+                if (count($currentChunk) >= $chunkSize) {
+                    // Dispatch chunk job
+                    \App\Jobs\ProcessCsvChunkJob::dispatch(
+                        $currentChunk,
+                        $headers,
+                        $this->log->id,
+                        $chunkNumber,
+                        $totalChunks
+                    );
+
+                    $currentChunk = [];
+                    $chunkNumber++;
+                }
+            }
+
+            // Dispatch remaining records
+            if (!empty($currentChunk)) {
+                \App\Jobs\ProcessCsvChunkJob::dispatch(
+                    $currentChunk,
+                    $headers,
+                    $this->log->id,
+                    $chunkNumber,
+                    $totalChunks
+                );
+            }
+
+            fclose($handle);
+
+            $this->log->update(['status' => 'queued']);
+
+            return [
+                'success' => true,
+                'log' => $this->log,
+                'message' => "Import queued successfully. {$totalChunks} chunks dispatched for processing.",
+                'total_chunks' => $totalChunks
+            ];
+
+        } catch (Exception $e) {
+            if ($this->log) {
+                $this->log->markAsFailed(['error' => $e->getMessage()]);
+            }
+
+            Log::error('Campaign Monitor chunked import failed', [
+                'error' => $e->getMessage(),
+                'file' => $filePath,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'log' => $this->log
+            ];
+        }
+    }
+
+    public function processChunkData($chunkData, $headers, $log)
+    {
+        try {
+            $processed = 0;
+            $created = 0;
+            $updated = 0;
+            $failed = 0;
+
+            // Use PDO for chunk processing
+            $this->log = $log;
+
+            // Process the chunk using existing PDO batch processing
+            $this->processBatchWithPDO($chunkData);
+
+            // Update counters based on batch results
+            $processed = count($chunkData);
+            $created = $this->log->created_count ?? 0;
+            $updated = $this->log->updated_count ?? 0;
+
+            // Update log totals (thread-safe)
+            $this->log->increment('processed_rows', $processed);
+
+            return [
+                'success' => true,
+                'processed' => $processed,
+                'created' => $created,
+                'updated' => $updated,
+                'failed' => $failed
+            ];
+
+        } catch (Exception $e) {
+            Log::error('Chunk processing failed', [
+                'error' => $e->getMessage(),
+                'chunk_size' => count($chunkData)
+            ]);
+
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    protected function getExistingUsersByEmail($emails)
+    {
+        return User::whereIn('email', $emails)
+            ->get()
+            ->keyBy('email')
+            ->toArray();
+    }
+
+    protected function prepareUserInsertData($rowData)
+    {
+        $fullname = $this->buildFullName($rowData);
+        return [
+            'email' => $rowData['email'],
+            'fullname' => $fullname ?: '',
+            'cm_status' => $this->config['default_status'] ?? 'active',
+            'cm_subscribed_at' => isset($rowData['cm_subscribed_at']) && !empty($rowData['cm_subscribed_at'])
+                ? $this->parseDate($rowData['cm_subscribed_at'])
+                : now()->format('Y-m-d H:i:s'),
+            'cm_unsubscribed_at' => isset($rowData['cm_unsubscribed_at']) && !empty($rowData['cm_unsubscribed_at'])
+                ? $this->parseDate($rowData['cm_unsubscribed_at'])
+                : null,
+            'permission_to_track' => isset($rowData['permission_to_track'])
+                ? $this->parseBoolean($rowData['permission_to_track'])
+                : true,
+            'created_at' => now()->format('Y-m-d H:i:s'),
+            'updated_at' => now()->format('Y-m-d H:i:s')
+        ];
+    }
+
+    protected function prepareUserUpdateData($rowData, $existingUser)
+    {
+        $updates = [];
+        $newName = $this->buildFullName($rowData);
+
+        if ($newName && $existingUser['fullname'] !== $newName) {
+            $updates['fullname'] = $newName;
+        }
+
+        if (isset($rowData['cm_subscriber_id']) && $existingUser['cm_subscriber_id'] !== $rowData['cm_subscriber_id']) {
+            $updates['cm_subscriber_id'] = $rowData['cm_subscriber_id'];
+        }
+
+        if (isset($rowData['cm_status']) && $existingUser['cm_status'] !== $rowData['cm_status']) {
+            $updates['cm_status'] = $rowData['cm_status'];
+        }
+
+        if (!empty($updates)) {
+            $updates['email'] = $rowData['email'];
+            $updates['updated_at'] = now()->format('Y-m-d H:i:s');
+        }
+
+        return $updates;
+    }
+
+    protected function prepareCustomFieldData($rowData, $email)
+    {
+        $standardFields = [
+            'email', 'fullname', 'cm_subscriber_id', 'cm_status',
+            'cm_subscribed_at', 'cm_unsubscribed_at', 'permission_to_track',
+            'date_active', 'date_joined'
+        ];
+
+        $customData = [];
+        foreach ($rowData as $fieldKey => $value) {
+            if (in_array($fieldKey, $standardFields) || empty($value)) {
+                continue;
+            }
+
+            $customData[] = [
+                'email' => $email,
+                'field_key' => $fieldKey,
+                'value' => $value,
+                'data_type' => $this->detectDataType($value)
+            ];
+        }
+
+        return $customData;
+    }
+
+    protected function bulkInsertUsers($pdo, $users)
+    {
+        if (empty($users)) return;
+
+        // MySQL has a limit on placeholders (~65535).
+        // With 8 columns per row, we can safely insert ~8000 rows at once
+        // Use configurable chunk size to be safe
+        $chunkSize = $this->config['pdo_chunk_size'] ?? 500;
+        $chunks = array_chunk($users, $chunkSize);
+
+        foreach ($chunks as $chunk) {
+            $sql = "INSERT INTO users (email, fullname, cm_status, cm_subscribed_at, cm_unsubscribed_at, permission_to_track, created_at, updated_at) VALUES ";
+            $values = [];
+            $params = [];
+
+            foreach ($chunk as $user) {
+                $values[] = "(?, ?, ?, ?, ?, ?, ?, ?)";
+                $params = array_merge($params, [
+                    $user['email'],
+                    $user['fullname'],
+                    $user['cm_status'],
+                    $user['cm_subscribed_at'],
+                    $user['cm_unsubscribed_at'],
+                    $user['permission_to_track'] ? 1 : 0,
+                    $user['created_at'],
+                    $user['updated_at']
+                ]);
+            }
+
+            $sql .= implode(', ', $values);
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+        }
+    }
+
+    protected function bulkUpdateUsers($pdo, $updates)
+    {
+        foreach ($updates as $update) {
+            if (count($update) <= 2) continue; // Only email and updated_at
+
+            $setParts = [];
+            $params = [];
+
+            foreach ($update as $field => $value) {
+                if ($field === 'email') continue;
+                $setParts[] = "{$field} = ?";
+                $params[] = $value;
+            }
+
+            if (!empty($setParts)) {
+                $sql = "UPDATE users SET " . implode(', ', $setParts) . " WHERE email = ?";
+                $params[] = $update['email'];
+
+                $stmt = $pdo->prepare($sql);
+                $stmt->execute($params);
+            }
+        }
+    }
+
+    protected function bulkInsertCustomFields($pdo, $customFieldData)
+    {
+        if (empty($customFieldData)) return;
+
+        // First, ensure custom field definitions exist
+        $fieldKeys = array_unique(array_column($customFieldData, 'field_key'));
+        $this->ensureCustomFieldsExist($fieldKeys);
+
+        // Get user IDs and field IDs for the values
+        $emails = array_unique(array_column($customFieldData, 'email'));
+        $userMap = $this->getUserIdsByEmail($emails);
+        $fieldMap = $this->getCustomFieldIdsByKey($fieldKeys);
+
+        // Prepare data for bulk insert
+        $insertData = [];
+        $now = now()->format('Y-m-d H:i:s');
+
+        foreach ($customFieldData as $data) {
+            if (!isset($userMap[$data['email']]) || !isset($fieldMap[$data['field_key']])) {
+                continue;
+            }
+
+            $insertData[] = [
+                $userMap[$data['email']],
+                $fieldMap[$data['field_key']],
+                $data['value'],
+                $now,
+                $now
+            ];
+        }
+
+        if (empty($insertData)) return;
+
+        // Chunk the data to avoid placeholder limit
+        // With 5 columns per row, we can use larger chunks than users table
+        $chunkSize = ($this->config['pdo_chunk_size'] ?? 500) * 2;
+        $chunks = array_chunk($insertData, $chunkSize);
+
+        foreach ($chunks as $chunk) {
+            $sql = "INSERT INTO cm_custom_field_values (user_id, cm_custom_field_id, value, created_at, updated_at) VALUES ";
+            $values = [];
+            $params = [];
+
+            foreach ($chunk as $row) {
+                $values[] = "(?, ?, ?, ?, ?)";
+                $params = array_merge($params, $row);
+            }
+
+            $sql .= implode(', ', $values);
+            $sql .= " ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)";
+
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+        }
+    }
+
+    protected function ensureCustomFieldsExist($fieldKeys)
+    {
+        foreach ($fieldKeys as $fieldKey) {
+            CmCustomField::firstOrCreate(
+                ['field_key' => $fieldKey],
+                [
+                    'field_name' => ucwords(str_replace('_', ' ', $fieldKey)),
+                    'data_type' => 'text',
+                    'is_active' => true
+                ]
+            );
+        }
+    }
+
+    protected function getUserIdsByEmail($emails)
+    {
+        return User::whereIn('email', $emails)
+            ->pluck('id', 'email')
+            ->toArray();
+    }
+
+    protected function getCustomFieldIdsByKey($fieldKeys)
+    {
+        return CmCustomField::whereIn('field_key', $fieldKeys)
+            ->pluck('id', 'field_key')
+            ->toArray();
     }
 
     public function previewCsv($filePath, $rows = 5)

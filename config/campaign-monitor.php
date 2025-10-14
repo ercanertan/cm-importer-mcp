@@ -25,8 +25,17 @@ return [
     // Maximum file upload size in KB (default: 10MB)
     'max_upload_size' => env('CM_MAX_UPLOAD_SIZE', 10240),
 
-    // Batch size for processing CSV rows (default: 100)
-    'batch_size' => env('CM_BATCH_SIZE', 100),
+    // Batch size for processing CSV rows (optimized for PDO bulk operations)
+    'batch_size' => env('CM_BATCH_SIZE', 1000),
+
+    // PDO bulk insert threshold - batches larger than this use PDO for better performance
+    'pdo_threshold' => env('CM_PDO_THRESHOLD', 100),
+
+    // PDO chunk size to avoid MySQL placeholder limit (max ~65535 placeholders)
+    'pdo_chunk_size' => env('CM_PDO_CHUNK_SIZE', 500),
+
+    // Queue chunk size - number of records per queue job (for chunked processing)
+    'queue_chunk_size' => env('CM_QUEUE_CHUNK_SIZE', 5000),
 
     /*
     |--------------------------------------------------------------------------

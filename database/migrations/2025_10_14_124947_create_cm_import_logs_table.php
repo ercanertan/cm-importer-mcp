@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('cm_import_logs', function (Blueprint $table) {
             $table->id();
             $table->string('filename')->nullable();
-            $table->enum('status', ['pending', 'processing', 'completed', 'failed'])->default('pending');
+            $table->enum('status', ['pending', 'queued', 'processing', 'completed', 'failed'])->default('pending');
             $table->integer('total_rows')->default(0);
             $table->integer('processed_rows')->default(0);
             $table->integer('created_count')->default(0);
