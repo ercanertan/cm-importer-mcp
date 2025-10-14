@@ -121,6 +121,39 @@
                     </div>
                 </div>
 
+                <!-- Memory Usage -->
+                @if($import->memory_current || $import->memory_peak)
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    @if($import->memory_current)
+                    <div class="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-sm text-purple-600 font-medium mb-1">Current Memory</div>
+                                <div class="text-2xl font-bold text-purple-700">{{ $import->memory_current }}</div>
+                            </div>
+                            <svg class="h-8 w-8 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                            </svg>
+                        </div>
+                    </div>
+                    @endif
+
+                    @if($import->memory_peak)
+                    <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <div class="text-sm text-indigo-600 font-medium mb-1">Peak Memory</div>
+                                <div class="text-2xl font-bold text-indigo-700">{{ $import->memory_peak }}</div>
+                            </div>
+                            <svg class="h-8 w-8 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                            </svg>
+                        </div>
+                    </div>
+                    @endif
+                </div>
+                @endif
+
                 <!-- Error Message -->
                 @if($hasError)
                     <div class="mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
@@ -134,6 +167,9 @@
                         <p class="font-medium">
                             Import completed successfully!
                             Processed {{ number_format($import->processed_rows) }} rows in {{ $import->duration ? round($import->duration) . 's' : 'N/A' }}.
+                            @if($import->memory_peak)
+                                <span class="block mt-1 text-sm">Peak memory usage: {{ $import->memory_peak }}</span>
+                            @endif
                         </p>
                     </div>
                 @endif

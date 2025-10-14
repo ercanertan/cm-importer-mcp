@@ -14,6 +14,7 @@ class CampaignMonitorImportService
 {
     protected $config;
     protected $log;
+    protected $batchCounter = 0;
 
     public function __construct()
     {
@@ -160,6 +161,8 @@ class CampaignMonitorImportService
             }
 
             // Final counter save to ensure all data is persisted
+            $memoryPeak = round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB';
+
             DB::table('cm_import_logs')
                 ->where('id', $this->log->id)
                 ->update([
@@ -167,6 +170,7 @@ class CampaignMonitorImportService
                     'created_count' => $this->log->created_count,
                     'updated_count' => $this->log->updated_count,
                     'failed_count' => $this->log->failed_count,
+                    'memory_peak' => $memoryPeak,
                     'updated_at' => now()
                 ]);
 
@@ -252,12 +256,14 @@ class CampaignMonitorImportService
 
             // Update counters in memory (save every N batches to reduce DB writes)
             $this->log->processed_rows += count($batch);
+            $this->batchCounter++;
 
-            // Only save to database every 10 batches or when needed
-            static $batchCounter = 0;
-            $batchCounter++;
+            // Calculate memory usage every batch (but only save to DB every 10 batches)
+            $memoryUsage = round(memory_get_usage(true) / 1024 / 1024, 2) . ' MB';
+            $memoryPeak = round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB';
 
-            if ($batchCounter % 10 === 0) {
+            // Save to database every 10 batches to track progress and memory
+            if ($this->batchCounter % 10 === 0) {
                 DB::table('cm_import_logs')
                     ->where('id', $this->log->id)
                     ->update([
@@ -265,6 +271,8 @@ class CampaignMonitorImportService
                         'created_count' => $this->log->created_count,
                         'updated_count' => $this->log->updated_count,
                         'failed_count' => $this->log->failed_count,
+                        'memory_current' => $memoryUsage,
+                        'memory_peak' => $memoryPeak,
                         'updated_at' => now()
                     ]);
             }
@@ -594,6 +602,8 @@ class CampaignMonitorImportService
             }
 
             // Final counter save to ensure all data is persisted
+            $memoryPeak = round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB';
+
             DB::table('cm_import_logs')
                 ->where('id', $this->log->id)
                 ->update([
@@ -601,6 +611,7 @@ class CampaignMonitorImportService
                     'created_count' => $this->log->created_count,
                     'updated_count' => $this->log->updated_count,
                     'failed_count' => $this->log->failed_count,
+                    'memory_peak' => $memoryPeak,
                     'updated_at' => now()
                 ]);
 
@@ -856,6 +867,8 @@ class CampaignMonitorImportService
             }
 
             // Final counter save to ensure all data is persisted
+            $memoryPeak = round(memory_get_peak_usage(true) / 1024 / 1024, 2) . ' MB';
+
             DB::table('cm_import_logs')
                 ->where('id', $this->log->id)
                 ->update([
@@ -863,6 +876,7 @@ class CampaignMonitorImportService
                     'created_count' => $this->log->created_count,
                     'updated_count' => $this->log->updated_count,
                     'failed_count' => $this->log->failed_count,
+                    'memory_peak' => $memoryPeak,
                     'updated_at' => now()
                 ]);
 

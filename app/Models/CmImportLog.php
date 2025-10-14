@@ -20,6 +20,8 @@ class CmImportLog extends Model
         'created_count',
         'updated_count',
         'failed_count',
+        'memory_peak',
+        'memory_current',
         'custom_fields_detected',
         'error_details',
         'started_at',
