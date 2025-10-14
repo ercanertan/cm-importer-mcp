@@ -47,6 +47,15 @@ class ImportCampaignMonitorCsvJob implements ShouldQueue
                 'memory_limit' => ini_get('memory_limit')
             ]);
 
+            // Early check for file existence
+            if (!file_exists($this->filePath)) {
+                Log::error('Campaign Monitor CSV file not found', [
+                    'file' => $this->filePath,
+                    'log_id' => $this->logId
+                ]);
+                throw new \Exception("File not found: {$this->filePath}");
+            }
+
             $startTime = microtime(true);
 
             // Check file size to determine if we should use chunked processing

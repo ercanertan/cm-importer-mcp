@@ -8,6 +8,7 @@ class CmImportLog extends Model
 {
     protected $fillable = [
         'filename',
+        'file_hash',
         'status',
         'total_rows',
         'total_chunks',

@@ -77,6 +77,7 @@ class CampaignMonitorImportService
         return false;
     }
 
+
     public function importFromCsv($filePath, $logId = null)
     {
         try {
@@ -88,7 +89,10 @@ class CampaignMonitorImportService
                 throw new Exception("File not found or not readable: {$filePath}");
             }
 
-            $this->log = $logId ? CmImportLog::find($logId) : $this->createImportLog(basename($filePath));
+            // Generate file hash for tracking (but don't prevent duplicates)
+            $fileHash = hash_file('sha256', $filePath);
+
+            $this->log = $logId ? CmImportLog::find($logId) : $this->createImportLog(basename($filePath), $fileHash);
             $this->log->markAsStarted();
 
             $handle = fopen($filePath, 'r');
@@ -240,8 +244,8 @@ class CampaignMonitorImportService
 
             // Bulk update existing users
             if (!empty($updateUsers)) {
-                $this->bulkUpdateUsers($pdo, $updateUsers);
-                $this->log->updated_count += count($updateUsers);
+                $actuallyUpdated = $this->bulkUpdateUsers($pdo, $updateUsers);
+                $this->log->updated_count += $actuallyUpdated;
             }
 
             // Process custom fields
@@ -436,10 +440,11 @@ class CampaignMonitorImportService
         return $rowCount > 0 ? $rowCount - 1 : 0;
     }
 
-    protected function createImportLog($filename)
+    protected function createImportLog($filename, $fileHash = null)
     {
         return CmImportLog::create([
             'filename' => $filename,
+            'file_hash' => $fileHash,
             'status' => 'pending'
         ]);
     }
@@ -586,7 +591,10 @@ class CampaignMonitorImportService
                 throw new Exception("File not found or not readable: {$filePath}");
             }
 
-            $this->log = $logId ? CmImportLog::find($logId) : $this->createImportLog(basename($filePath));
+            // Generate file hash for tracking (but don't prevent duplicates)
+            $fileHash = hash_file('sha256', $filePath);
+
+            $this->log = $logId ? CmImportLog::find($logId) : $this->createImportLog(basename($filePath), $fileHash);
             $this->log->markAsStarted();
 
             $handle = fopen($filePath, 'r');
@@ -846,6 +854,8 @@ class CampaignMonitorImportService
 
     protected function bulkUpdateUsers($pdo, $updates)
     {
+        $actuallyUpdated = 0;
+
         foreach ($updates as $update) {
             if (count($update) <= 2) continue; // Only email and updated_at
 
@@ -864,8 +874,11 @@ class CampaignMonitorImportService
 
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($params);
+                $actuallyUpdated++;
             }
         }
+
+        return $actuallyUpdated;
     }
 
     protected function bulkInsertCustomFields($pdo, $customFieldData)
