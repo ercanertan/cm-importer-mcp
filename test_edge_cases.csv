@@ -1,0 +1,4 @@
+Email,Name,Company
+user1@example.com,John Doe,Corp1
+user2@example.com,,Corp2
+user3@example.com,   ,Corp3

@@ -1,0 +1,60 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class CmCustomFieldValue extends Model
+{
+    protected $fillable = [
+        'user_id',
+        'cm_custom_field_id',
+        'value',
+    ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function customField()
+    {
+        return $this->belongsTo(CmCustomField::class, 'cm_custom_field_id');
+    }
+
+    public function scopeByField($query, $fieldKey)
+    {
+        return $query->whereHas('customField', function ($q) use ($fieldKey) {
+            $q->where('field_key', $fieldKey);
+        });
+    }
+
+    public function scopeByUser($query, $userId)
+    {
+        return $query->where('user_id', $userId);
+    }
+
+    public function getFormattedValueAttribute()
+    {
+        $field = $this->customField;
+
+        if (!$field) {
+            return $this->value;
+        }
+
+        switch ($field->data_type) {
+            case 'date':
+                try {
+                    return date('Y-m-d', strtotime($this->value));
+                } catch (\Exception $e) {
+                    return $this->value;
+                }
+            case 'number':
+                return is_numeric($this->value) ? (float) $this->value : $this->value;
+            case 'multi_select':
+                return is_string($this->value) ? explode(',', $this->value) : $this->value;
+            default:
+                return $this->value;
+        }
+    }
+}

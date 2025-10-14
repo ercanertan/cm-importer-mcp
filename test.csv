@@ -1,0 +1,6 @@
+email,name,company,job_title,phone,city
+john@example.com,John Doe,Acme Corp,Developer,+1234567890,New York
+jane@example.com,Jane Smith,Tech Inc,Designer,+0987654321,San Francisco
+bob@example.com,Bob Johnson,Start Co,Manager,+1122334455,Austin
+alice@example.com,Alice Brown,Dev Ltd,Engineer,+5566778899,Seattle
+charlie@example.com,Charlie Wilson,Code Corp,Analyst,+9988776655,Denver
