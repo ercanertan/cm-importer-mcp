@@ -159,6 +159,17 @@ class CampaignMonitorImportService
                 $this->processBatch($batch);
             }
 
+            // Final counter save to ensure all data is persisted
+            DB::table('cm_import_logs')
+                ->where('id', $this->log->id)
+                ->update([
+                    'processed_rows' => $this->log->processed_rows,
+                    'created_count' => $this->log->created_count,
+                    'updated_count' => $this->log->updated_count,
+                    'failed_count' => $this->log->failed_count,
+                    'updated_at' => now()
+                ]);
+
             fclose($handle);
             $this->log->markAsCompleted();
 
@@ -189,41 +200,8 @@ class CampaignMonitorImportService
 
     protected function processBatch($batch)
     {
-        // Use high-performance PDO bulk insert for large batches
-        $pdoThreshold = $this->config['pdo_threshold'] ?? 100;
-        if (count($batch) > $pdoThreshold) {
-            return $this->processBatchWithPDO($batch);
-        }
-
-        // Track counters for this batch
-        $batchCreated = 0;
-        $batchUpdated = 0;
-        $batchFailed = 0;
-
-        // Use Eloquent for smaller batches (maintains full model features)
-        DB::transaction(function () use ($batch, &$batchCreated, &$batchUpdated, &$batchFailed) {
-            foreach ($batch as $rowData) {
-                try {
-                    $result = $this->processRow($rowData);
-                    if ($result === 'created') {
-                        $batchCreated++;
-                    } elseif ($result === 'updated') {
-                        $batchUpdated++;
-                    }
-                } catch (Exception $e) {
-                    $batchFailed++;
-                    $this->logError("Failed to process row: " . $e->getMessage());
-                }
-            }
-        });
-
-        // Update counters after transaction completes
-        $this->log->refresh();
-        $this->log->processed_rows += count($batch);
-        $this->log->created_count += $batchCreated;
-        $this->log->updated_count += $batchUpdated;
-        $this->log->failed_count += $batchFailed;
-        $this->log->save();
+        // ALWAYS use PDO for maximum performance
+        return $this->processBatchWithPDO($batch);
     }
 
     protected function processBatchWithPDO($batch)
@@ -272,12 +250,24 @@ class CampaignMonitorImportService
 
             $pdo->commit();
 
-            // Refresh model to avoid "Table definition has changed" error
-            $this->log->refresh();
-
-            // Update counters in database
+            // Update counters in memory (save every N batches to reduce DB writes)
             $this->log->processed_rows += count($batch);
-            $this->log->save();
+
+            // Only save to database every 10 batches or when needed
+            static $batchCounter = 0;
+            $batchCounter++;
+
+            if ($batchCounter % 10 === 0) {
+                DB::table('cm_import_logs')
+                    ->where('id', $this->log->id)
+                    ->update([
+                        'processed_rows' => $this->log->processed_rows,
+                        'created_count' => $this->log->created_count,
+                        'updated_count' => $this->log->updated_count,
+                        'failed_count' => $this->log->failed_count,
+                        'updated_at' => now()
+                    ]);
+            }
 
         } catch (Exception $e) {
             $pdo->rollBack();
@@ -603,6 +593,17 @@ class CampaignMonitorImportService
                 $this->processBatch($batch);
             }
 
+            // Final counter save to ensure all data is persisted
+            DB::table('cm_import_logs')
+                ->where('id', $this->log->id)
+                ->update([
+                    'processed_rows' => $this->log->processed_rows,
+                    'created_count' => $this->log->created_count,
+                    'updated_count' => $this->log->updated_count,
+                    'failed_count' => $this->log->failed_count,
+                    'updated_at' => now()
+                ]);
+
             fclose($handle);
             $this->log->markAsCompleted();
 
@@ -854,6 +855,17 @@ class CampaignMonitorImportService
                 $this->processBatch($batch);
             }
 
+            // Final counter save to ensure all data is persisted
+            DB::table('cm_import_logs')
+                ->where('id', $this->log->id)
+                ->update([
+                    'processed_rows' => $this->log->processed_rows,
+                    'created_count' => $this->log->created_count,
+                    'updated_count' => $this->log->updated_count,
+                    'failed_count' => $this->log->failed_count,
+                    'updated_at' => now()
+                ]);
+
             fclose($handle);
             $this->log->markAsCompleted();
 
@@ -901,8 +913,10 @@ class CampaignMonitorImportService
             $created = $this->log->created_count ?? 0;
             $updated = $this->log->updated_count ?? 0;
 
-            // Update log totals (thread-safe)
-            $this->log->increment('processed_rows', $processed);
+            // Update log totals using direct DB query to avoid transaction conflicts
+            DB::table('cm_import_logs')
+                ->where('id', $this->log->id)
+                ->increment('processed_rows', $processed);
 
             return [
                 'success' => true,

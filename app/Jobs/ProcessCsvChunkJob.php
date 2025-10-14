@@ -131,7 +131,8 @@ class ProcessCsvChunkJob implements ShouldQueue
         if ($this->logId) {
             $log = CmImportLog::find($this->logId);
             if ($log) {
-                $log->increment('failed_chunks');
+                \DB::table('cm_import_logs')->where('id', $this->logId)->increment('failed_chunks');
+                $log->refresh(); // Reload from database
 
                 // If too many chunks failed, mark entire import as failed
                 if ($log->failed_chunks > ($this->totalChunks * 0.1)) { // 10% failure threshold
