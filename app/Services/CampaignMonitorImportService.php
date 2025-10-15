@@ -122,6 +122,10 @@ class CampaignMonitorImportService
             $customFields = $this->detectCustomFields($headers);
             $this->log->update(['custom_fields_detected' => $customFields]);
 
+            // Immediately create custom field definitions for all detected fields
+            // This ensures fields exist even if all rows have empty values
+            $this->ensureCustomFieldsExist($customFields);
+
             // Use larger batch size for better performance with large files
             $batchSize = $this->config['batch_size'] ?? 500;
             $batch = [];
@@ -404,7 +408,8 @@ class CampaignMonitorImportService
         ];
 
         foreach ($rowData as $fieldKey => $value) {
-            if (in_array($fieldKey, $standardFields) || empty($value)) {
+            // Skip standard fields, empty values, or empty field keys
+            if (in_array($fieldKey, $standardFields) || empty($value) || empty(trim($fieldKey))) {
                 continue;
             }
 
@@ -443,7 +448,14 @@ class CampaignMonitorImportService
             'date_active',
             'date_joined'
         ];
-        return array_diff($headers, $standardFields);
+
+        // Filter out empty strings and whitespace-only values
+        $customFields = array_diff($headers, $standardFields);
+        $customFields = array_filter($customFields, function($field) {
+            return !empty(trim($field));
+        });
+
+        return array_values($customFields); // Re-index array
     }
 
     protected function detectDataType($value)
@@ -558,6 +570,10 @@ class CampaignMonitorImportService
 
             $customFields = $this->detectCustomFields($headers);
             $this->log->update(['custom_fields_detected' => $customFields]);
+
+            // Immediately create custom field definitions for all detected fields
+            // This ensures fields exist even if all rows have empty values
+            $this->ensureCustomFieldsExist($customFields);
 
             $progressCallback([
                 'type' => 'status',
@@ -848,6 +864,10 @@ class CampaignMonitorImportService
                 'custom_fields_detected' => $customFields
             ]);
 
+            // Immediately create custom field definitions for all detected fields
+            // This ensures fields exist even if all rows have empty values
+            $this->ensureCustomFieldsExist($customFields);
+
             // Process in small batches for memory efficiency
             $batchSize = 100; // Smaller batches for better progress updates
             $batch = [];
@@ -1060,7 +1080,8 @@ class CampaignMonitorImportService
 
         $customData = [];
         foreach ($rowData as $fieldKey => $value) {
-            if (in_array($fieldKey, $standardFields) || empty($value)) {
+            // Skip standard fields, empty values, or empty field keys
+            if (in_array($fieldKey, $standardFields) || empty($value) || empty(trim($fieldKey))) {
                 continue;
             }
 
@@ -1198,6 +1219,11 @@ class CampaignMonitorImportService
     protected function ensureCustomFieldsExist($fieldKeys)
     {
         foreach ($fieldKeys as $fieldKey) {
+            // Skip empty or whitespace-only field keys
+            if (empty(trim($fieldKey))) {
+                continue;
+            }
+
             // Generate a readable field_name by adding spaces before capital letters
             // Example: "EllucianFringe" becomes "Ellucian Fringe"
             $fieldName = preg_replace('/([a-z])([A-Z])/', '$1 $2', $fieldKey);

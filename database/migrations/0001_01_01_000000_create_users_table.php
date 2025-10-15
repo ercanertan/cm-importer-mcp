@@ -18,6 +18,12 @@ return new class extends Migration
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password')->nullable();
 
+            // Campaign Monitor fields
+            $table->string('cm_subscriber_id')->nullable()->unique()->comment('Campaign Monitor Subscriber ID');
+            $table->enum('cm_status', ['active', 'unsubscribed', 'bounced', 'deleted'])->default('active');
+            $table->timestamp('cm_subscribed_at')->nullable();
+            $table->timestamp('cm_unsubscribed_at')->nullable();
+            $table->boolean('permission_to_track')->nullable()->default(true)->comment('Permission to track user activity');
 
             // Two-factor authentication
             $table->text('two_factor_secret')->nullable();
@@ -26,6 +32,11 @@ return new class extends Migration
 
             $table->rememberToken();
             $table->timestamps();
+            $table->softDeletes();
+
+            // Indexes
+            $table->index('cm_subscriber_id');
+            $table->index('cm_status');
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {
