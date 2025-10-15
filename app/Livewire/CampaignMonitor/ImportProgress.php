@@ -117,7 +117,13 @@ class ImportProgress extends Component
 
         if ($this->import) {
             $this->isComplete = in_array($this->import->status, ['completed', 'failed']);
-            $this->isProcessing = $this->import->status === 'processing';
+
+            // For queue imports (no storage_path), show as processing even when pending
+            if (!$this->import->storage_path) {
+                $this->isProcessing = ($this->import->status === 'processing' || $this->import->status === 'pending');
+            } else {
+                $this->isProcessing = $this->import->status === 'processing';
+            }
 
             if ($this->import->status === 'failed') {
                 $this->hasError = true;

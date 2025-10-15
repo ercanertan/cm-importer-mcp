@@ -1,5 +1,5 @@
 <div class="min-h-screen py-8 bg-gray-50"
-     wire:poll.1s="refreshImport"
+     @if(!$isComplete && !$hasError) wire:poll.1s="refreshImport" @endif
      x-data="{ started: false }"
      x-init="
          @if($import && $import->status === 'pending' && !$isProcessing)
@@ -67,6 +67,8 @@
                             Import Completed!
                         @elseif($import && $import->status === 'processing')
                             Processing...
+                        @elseif($import && $import->status === 'pending' && !$import->storage_path)
+                            Waiting for Queue Worker...
                         @elseif($import && $import->status === 'pending')
                             Ready to Import
                         @else
@@ -194,25 +196,44 @@
                 </div>
                 @endif
 
-                <!-- Warning Message (only while processing) -->
+                <!-- Warning Message -->
                 @if($isProcessing && !$isComplete)
-                    <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <div class="flex items-start">
-                            <svg class="h-5 w-5 text-yellow-600 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                            </svg>
-                            <p class="text-sm text-yellow-800">
-                                <strong>Please keep this page open.</strong> The import is processing and closing this page may interrupt the process.
-                            </p>
+                    @if($import && !$import->storage_path)
+                        {{-- Queue mode warning --}}
+                        <div class="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div class="flex items-start">
+                                <svg class="h-5 w-5 text-blue-600 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+                                </svg>
+                                <p class="text-sm text-blue-800">
+                                    <strong>Queue mode enabled.</strong> Make sure the queue worker is running: <code class="bg-blue-100 px-2 py-1 rounded">php artisan queue:work --queue=imports</code>
+                                </p>
+                            </div>
                         </div>
-                    </div>
+                    @else
+                        {{-- Non-queue mode warning --}}
+                        <div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <div class="flex items-start">
+                                <svg class="h-5 w-5 text-yellow-600 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                                </svg>
+                                <p class="text-sm text-yellow-800">
+                                    <strong>Please keep this page open.</strong> The import is processing and closing this page may interrupt the process.
+                                </p>
+                            </div>
+                        </div>
+                    @endif
                 @endif
             @endif
         </div>
 
         <!-- Additional Info -->
         <div class="mt-6 text-center text-sm text-gray-500">
-            <p>Auto-refreshing every second • Wire:poll enabled</p>
+            @if(!$isComplete && !$hasError)
+                <p>Auto-refreshing every second • Wire:poll enabled</p>
+            @else
+                <p>Auto-refresh stopped</p>
+            @endif
         </div>
     </div>
 </div>
