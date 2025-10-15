@@ -109,8 +109,20 @@ class CampaignMonitorImportController extends Controller
             abort(404);
         }
 
+        // Get all existing custom fields from before this import
+        $existingFieldKeys = \App\Models\CmCustomField::where('created_at', '<', $import->created_at)
+            ->pluck('field_key')
+            ->toArray();
+
+        // Identify newly detected fields
+        $detectedFields = array_filter($import->custom_fields_detected ?? [], fn($field) => !empty($field));
+        $newFields = array_values(array_filter(array_diff($detectedFields, $existingFieldKeys), fn($field) => !empty($field)));
+        $existingFields = array_values(array_filter(array_intersect($detectedFields, $existingFieldKeys), fn($field) => !empty($field)));
+
         return view('campaign-monitor.import-detail', [
-            'import' => $import
+            'import' => $import,
+            'newCustomFields' => $newFields,
+            'existingCustomFields' => $existingFields
         ]);
     }
 

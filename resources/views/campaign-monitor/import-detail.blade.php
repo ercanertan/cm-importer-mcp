@@ -124,18 +124,58 @@
             </div>
 
             <!-- Custom Fields Detected -->
-            @if($import->custom_fields_detected && count($import->custom_fields_detected) > 0)
+            @if((!empty($newCustomFields) && count($newCustomFields) > 0) || (!empty($existingCustomFields) && count($existingCustomFields) > 0))
                 <div class="bg-white shadow rounded-lg p-6 mb-8">
                     <h2 class="text-xl font-semibold mb-4">Custom Fields Detected</h2>
 
-                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        @foreach($import->custom_fields_detected as $field)
-                            <div class="bg-blue-50 p-3 rounded">
-                                <div class="font-medium text-blue-900">{{ $field }}</div>
-                                <div class="text-sm text-blue-700">Custom Field</div>
+                    <!-- New Custom Fields -->
+                    @if(!empty($newCustomFields) && count($newCustomFields) > 0)
+                        <div class="{{ !empty($existingCustomFields) && count($existingCustomFields) > 0 ? 'mb-6' : '' }}">
+                            <h3 class="text-lg font-medium text-green-800 mb-3 flex items-center">
+                                <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                </svg>
+                                Newly Detected Fields ({{ count($newCustomFields) }})
+                            </h3>
+                            <p class="text-sm text-gray-600 mb-3">These custom fields were newly created during this import:</p>
+                            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                @foreach($newCustomFields as $field)
+                                    @if(!empty($field))
+                                        <div class="bg-green-50 p-3 rounded border-2 border-green-200">
+                                            <div class="font-medium text-green-900">{{ $field }}</div>
+                                            <div class="text-xs text-green-700 flex items-center mt-1">
+                                                <span class="inline-block w-2 h-2 bg-green-500 rounded-full mr-1"></span>
+                                                New Field
+                                            </div>
+                                        </div>
+                                    @endif
+                                @endforeach
                             </div>
-                        @endforeach
-                    </div>
+                        </div>
+                    @endif
+
+                    <!-- Existing Custom Fields -->
+                    @if(!empty($existingCustomFields) && count($existingCustomFields) > 0)
+                        <div>
+                            <h3 class="text-lg font-medium text-blue-800 mb-3 flex items-center">
+                                <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Existing Fields ({{ count($existingCustomFields) }})
+                            </h3>
+                            <p class="text-sm text-gray-600 mb-3">These custom fields already existed in the database:</p>
+                            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                @foreach($existingCustomFields as $field)
+                                    @if(!empty($field))
+                                        <div class="bg-blue-50 p-3 rounded border border-blue-200">
+                                            <div class="font-medium text-blue-900">{{ $field }}</div>
+                                            <div class="text-xs text-blue-700">Existing Field</div>
+                                        </div>
+                                    @endif
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
                 </div>
             @endif
 
