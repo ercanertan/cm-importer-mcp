@@ -64,6 +64,14 @@ class CampaignMonitorImportService
             elseif (strtolower($trimmedHeader) === 'permission to track') {
                 $normalizedHeaders[] = 'permission_to_track';
             }
+            // Map 'Status' to cm_status
+            elseif (strtolower($trimmedHeader) === 'status') {
+                $normalizedHeaders[] = 'cm_status';
+            }
+            // Map 'Date Status Changed' to cm_status_changed_at
+            elseif (strtolower($trimmedHeader) === 'date status changed') {
+                $normalizedHeaders[] = 'cm_status_changed_at';
+            }
             else {
                 // Convert to field_key format (no spaces) for custom fields
                 $normalizedHeaders[] = $this->convertToFieldKey($trimmedHeader);
@@ -402,6 +410,7 @@ class CampaignMonitorImportService
             'cm_status',
             'cm_subscribed_at',
             'cm_unsubscribed_at',
+            'cm_status_changed_at',
             'permission_to_track',
             'date_active',
             'date_joined'
@@ -444,6 +453,7 @@ class CampaignMonitorImportService
             'cm_status',
             'cm_subscribed_at',
             'cm_unsubscribed_at',
+            'cm_status_changed_at',
             'permission_to_track',
             'date_active',
             'date_joined'
@@ -786,6 +796,21 @@ class CampaignMonitorImportService
         return true;
     }
 
+    protected function parseStatus($value)
+    {
+        $value = strtolower(trim($value));
+
+        // Map Campaign Monitor status values to our enum values
+        $statusMap = [
+            'active' => 'active',
+            'unsubscribed' => 'unsubscribed',
+            'bounced' => 'bounced',
+            'deleted' => 'deleted',
+        ];
+
+        return $statusMap[$value] ?? 'active'; // Default to active if unknown
+    }
+
     protected function isEmptyRow($rowData)
     {
         // Check if all values in the row are empty or whitespace
@@ -1020,8 +1045,12 @@ class CampaignMonitorImportService
     {
         $fullname = $this->buildFullName($rowData);
 
-        // Determine status based on file_type from the import log
-        $status = $this->determineStatus();
+        // Determine status: prioritize CSV 'Status' column over file_type
+        if (isset($rowData['cm_status']) && !empty($rowData['cm_status'])) {
+            $status = $this->parseStatus($rowData['cm_status']);
+        } else {
+            $status = $this->determineStatus();
+        }
 
         return [
             'email' => $rowData['email'],
@@ -1032,6 +1061,9 @@ class CampaignMonitorImportService
                 : now()->format('Y-m-d H:i:s'),
             'cm_unsubscribed_at' => isset($rowData['cm_unsubscribed_at']) && !empty($rowData['cm_unsubscribed_at'])
                 ? $this->parseDate($rowData['cm_unsubscribed_at'])
+                : null,
+            'cm_status_changed_at' => isset($rowData['cm_status_changed_at']) && !empty($rowData['cm_status_changed_at'])
+                ? $this->parseDate($rowData['cm_status_changed_at'])
                 : null,
             'permission_to_track' => isset($rowData['permission_to_track'])
                 ? $this->parseBoolean($rowData['permission_to_track'])
@@ -1054,14 +1086,26 @@ class CampaignMonitorImportService
             $updates['cm_subscriber_id'] = $rowData['cm_subscriber_id'];
         }
 
-        // Update status based on file_type (unless file_type is 'all')
-        $fileType = $this->log->file_type ?? 'all';
-        if ($fileType !== 'all') {
-            if ($existingUser['cm_status'] !== $fileType) {
+        // Update status: prioritize CSV 'Status' column over file_type
+        if (isset($rowData['cm_status']) && !empty($rowData['cm_status'])) {
+            $status = $this->parseStatus($rowData['cm_status']);
+            if ($existingUser['cm_status'] !== $status) {
+                $updates['cm_status'] = $status;
+            }
+        } else {
+            // Use file_type if no status in CSV and file_type is not 'all'
+            $fileType = $this->log->file_type ?? 'all';
+            if ($fileType !== 'all' && $existingUser['cm_status'] !== $fileType) {
                 $updates['cm_status'] = $fileType;
             }
-        } elseif (isset($rowData['cm_status']) && $existingUser['cm_status'] !== $rowData['cm_status']) {
-            $updates['cm_status'] = $rowData['cm_status'];
+        }
+
+        // Update cm_status_changed_at if provided in CSV
+        if (isset($rowData['cm_status_changed_at']) && !empty($rowData['cm_status_changed_at'])) {
+            $newStatusChangedAt = $this->parseDate($rowData['cm_status_changed_at']);
+            if ($existingUser['cm_status_changed_at'] != $newStatusChangedAt) {
+                $updates['cm_status_changed_at'] = $newStatusChangedAt;
+            }
         }
 
         if (!empty($updates)) {
@@ -1076,8 +1120,8 @@ class CampaignMonitorImportService
     {
         $standardFields = [
             'email', 'fullname', 'cm_subscriber_id', 'cm_status',
-            'cm_subscribed_at', 'cm_unsubscribed_at', 'permission_to_track',
-            'date_active', 'date_joined'
+            'cm_subscribed_at', 'cm_unsubscribed_at', 'cm_status_changed_at',
+            'permission_to_track', 'date_active', 'date_joined'
         ];
 
         $customData = [];
@@ -1103,24 +1147,25 @@ class CampaignMonitorImportService
         if (empty($users)) return;
 
         // MySQL has a limit on placeholders (~65535).
-        // With 8 columns per row, we can safely insert ~8000 rows at once
+        // With 9 columns per row, we can safely insert ~7000 rows at once
         // Use configurable chunk size to be safe
         $chunkSize = $this->config['pdo_chunk_size'] ?? 500;
         $chunks = array_chunk($users, $chunkSize);
 
         foreach ($chunks as $chunk) {
-            $sql = "INSERT INTO users (email, fullname, cm_status, cm_subscribed_at, cm_unsubscribed_at, permission_to_track, created_at, updated_at) VALUES ";
+            $sql = "INSERT INTO users (email, fullname, cm_status, cm_subscribed_at, cm_unsubscribed_at, cm_status_changed_at, permission_to_track, created_at, updated_at) VALUES ";
             $values = [];
             $params = [];
 
             foreach ($chunk as $user) {
-                $values[] = "(?, ?, ?, ?, ?, ?, ?, ?)";
+                $values[] = "(?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 $params = array_merge($params, [
                     $user['email'],
                     $user['fullname'],
                     $user['cm_status'],
                     $user['cm_subscribed_at'],
                     $user['cm_unsubscribed_at'],
+                    $user['cm_status_changed_at'] ?? null,
                     $user['permission_to_track'] ? 1 : 0,
                     $user['created_at'],
                     $user['updated_at']

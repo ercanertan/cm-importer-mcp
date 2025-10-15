@@ -23,6 +23,7 @@ return new class extends Migration
             $table->enum('cm_status', ['active', 'unsubscribed', 'bounced', 'deleted'])->default('active');
             $table->timestamp('cm_subscribed_at')->nullable();
             $table->timestamp('cm_unsubscribed_at')->nullable();
+            $table->timestamp('cm_status_changed_at')->nullable()->comment('Date when Campaign Monitor status was last changed');
             $table->boolean('permission_to_track')->nullable()->default(true)->comment('Permission to track user activity');
 
             // Two-factor authentication
