@@ -29,6 +29,13 @@ return [
     */
 
     'connections' => [
+        'failover' => [
+            'driver' => 'failover',
+            'connections' => [
+                env('QUEUE_CONNECTION', 'database'),
+                'sync',
+            ],
+        ],
 
         'sync' => [
             'driver' => 'sync',

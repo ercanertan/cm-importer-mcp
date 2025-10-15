@@ -19,14 +19,16 @@ class ImportCampaignMonitorCsvJob implements ShouldQueue
     public $maxExceptions = 1;
 
     protected $filePath;
+    protected $fileType;
     protected $logId;
 
     /**
      * Create a new job instance.
      */
-    public function __construct($filePath, $logId = null)
+    public function __construct($filePath, $fileType = 'active', $logId = null)
     {
         $this->filePath = $filePath;
+        $this->fileType = $fileType;
         $this->logId = $logId;
         $this->onQueue(config('campaign-monitor.queue_name', 'default'));
     }
@@ -42,6 +44,7 @@ class ImportCampaignMonitorCsvJob implements ShouldQueue
 
             Log::info('Starting Campaign Monitor CSV import job', [
                 'file' => $this->filePath,
+                'file_type' => $this->fileType,
                 'log_id' => $this->logId,
                 'queue' => $this->queue,
                 'memory_limit' => ini_get('memory_limit')
@@ -54,6 +57,12 @@ class ImportCampaignMonitorCsvJob implements ShouldQueue
                     'log_id' => $this->logId
                 ]);
                 throw new \Exception("File not found: {$this->filePath}");
+            }
+
+            // Create import log if not provided
+            if (!$this->logId) {
+                $log = $importService->createImportLogForFile($this->filePath, null, $this->fileType);
+                $this->logId = $log->id;
             }
 
             $startTime = microtime(true);

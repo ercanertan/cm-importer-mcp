@@ -16,7 +16,8 @@
       "Bash(cat:*)",
       "Bash(awk '{print $NF}')",
       "Read(//Users/ee/Library/**)",
-      "Bash(php:*)"
+      "Bash(php:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

@@ -20,10 +20,16 @@
      ">
 
     <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <!-- Header -->
-        <div class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-900">Import Progress</h1>
-            <p class="mt-2 text-gray-600">Processing your CSV file...</p>
+        <!-- Header with Back Button -->
+        <div class="mb-8 flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">Import Progress</h1>
+                <p class="mt-2 text-gray-600">Processing your CSV file...</p>
+            </div>
+            <a href="{{ route('campaign-monitor.import') }}"
+               class="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-6 rounded transition-colors duration-200">
+                Back to Import
+            </a>
         </div>
 
         <!-- Progress Card -->
