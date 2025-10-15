@@ -27,12 +27,6 @@ class ImportProgress extends Component
             return;
         }
 
-        if (!$this->import->storage_path) {
-            $this->hasError = true;
-            $this->errorMessage = 'File path not found in import log';
-            return;
-        }
-
         // Check if import is already completed or failed
         if (in_array($this->import->status, ['completed', 'failed'])) {
             $this->isComplete = true;
@@ -45,13 +39,20 @@ class ImportProgress extends Component
             return;
         }
 
-        // Check if import is already processing
+        // Check if import is being processed by queue (no storage_path means queue import)
+        if (!$this->import->storage_path) {
+            // This is a queue import, just show the progress
+            $this->isProcessing = ($this->import->status === 'processing' || $this->import->status === 'pending');
+            return;
+        }
+
+        // Check if import is already processing (non-queue)
         if ($this->import->status === 'processing') {
             $this->isProcessing = true;
             return;
         }
 
-        // Import will auto-start via wire:init if status is pending
+        // Import will auto-start via wire:init if status is pending (non-queue only)
     }
 
     public function startImport()

@@ -81,7 +81,11 @@ class CampaignMonitorImportController extends Controller
                 : 'active';
 
             if (config('campaign-monitor.queue_enabled', false)) {
-                ImportCampaignMonitorCsvJob::dispatch($filePath, $fileType);
+                // Create import log before dispatching job
+                $log = $this->importService->createImportLogForFile($filePath, $request->file_path, $fileType);
+
+                // Dispatch job with log ID
+                ImportCampaignMonitorCsvJob::dispatch($filePath, $fileType, $log->id);
 
                 return redirect()->route('campaign-monitor.import')
                     ->with('success', 'Import job has been queued and will be processed in the background.');
