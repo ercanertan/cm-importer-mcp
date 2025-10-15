@@ -15,7 +15,8 @@
       "Read(//private/tmp/**)",
       "Bash(cat:*)",
       "Bash(awk '{print $NF}')",
-      "Read(//Users/ee/Library/**)"
+      "Read(//Users/ee/Library/**)",
+      "Bash(php:*)"
     ],
     "deny": [],
     "ask": []

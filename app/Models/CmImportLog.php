@@ -10,6 +10,7 @@ class CmImportLog extends Model
         'filename',
         'file_hash',
         'storage_path',
+        'file_type',
         'status',
         'total_rows',
         'total_chunks',

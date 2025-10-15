@@ -52,6 +52,10 @@ return [
     // Default status for imported users
     'default_status' => env('CM_DEFAULT_STATUS', 'active'),
 
+    // Enable file type selection in UI (active, bounced, deleted, unsubscribed)
+    // When disabled, all imports default to 'active' status
+    'enable_file_type_selection' => env('CM_ENABLE_FILE_TYPE_SELECTION', false),
+
     /*
     |--------------------------------------------------------------------------
     | Logging Settings

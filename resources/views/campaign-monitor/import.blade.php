@@ -56,6 +56,29 @@
                             </p>
                         </div>
 
+                        @if(config('campaign-monitor.enable_file_type_selection', false))
+                            <div class="mb-4">
+                                <label for="file_type" class="block text-sm font-medium text-gray-700 mb-2">
+                                    Subscriber File Type
+                                </label>
+                                <select id="file_type"
+                                        name="file_type"
+                                        class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                        required>
+                                    <option value="all">All Subscribers (don't change status)</option>
+                                    <option value="active">Active Subscribers</option>
+                                    <option value="bounced">Bounced Subscribers</option>
+                                    <option value="deleted">Deleted Subscribers</option>
+                                    <option value="unsubscribed">Unsubscribed Subscribers</option>
+                                </select>
+                                <p class="mt-1 text-sm text-gray-500">
+                                    Select the type of subscriber list you're importing. This will set the cm_status for all imported subscribers accordingly.
+                                </p>
+                            </div>
+                        @else
+                            <input type="hidden" name="file_type" value="active">
+                        @endif
+
                         <button type="submit"
                                 class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded">
                             Upload & Preview
@@ -68,6 +91,20 @@
             @if(isset($preview) && $preview['valid'])
                 <div class="bg-white shadow rounded-lg p-6 mb-8">
                     <h2 class="text-xl font-semibold mb-4">CSV Preview</h2>
+
+                    <!-- File Type Info -->
+                    @if(config('campaign-monitor.enable_file_type_selection', false) && isset($fileType))
+                        <div class="mb-6 bg-blue-50 p-4 rounded">
+                            <h4 class="font-medium text-blue-900 mb-1">Subscriber File Type:</h4>
+                            <p class="text-blue-800">
+                                @if($fileType === 'all')
+                                    All Subscribers (status will not be changed)
+                                @else
+                                    {{ ucfirst($fileType) }} Subscribers - All imported users will have cm_status set to "{{ $fileType }}"
+                                @endif
+                            </p>
+                        </div>
+                    @endif
 
                     <!-- Field Information -->
                     <div class="mb-6">
@@ -132,6 +169,7 @@
                         <form action="{{ route('campaign-monitor.import') }}" method="POST" class="inline">
                             @csrf
                             <input type="hidden" name="file_path" value="{{ $uploadedFile }}">
+                            <input type="hidden" name="file_type" value="{{ $fileType ?? 'all' }}">
                             <button type="submit"
                                     class="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-6 rounded"
                                     onclick="return confirm('Are you sure you want to import this data?')">

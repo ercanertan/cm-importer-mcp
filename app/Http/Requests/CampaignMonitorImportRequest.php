@@ -56,6 +56,11 @@ class CampaignMonitorImportRequest extends FormRequest
                         }
                     }
                 }
+            ],
+            'file_type' => [
+                config('campaign-monitor.enable_file_type_selection', false) ? 'required' : 'nullable',
+                'string',
+                'in:all,active,bounced,deleted,unsubscribed'
             ]
         ];
     }
@@ -74,6 +79,8 @@ class CampaignMonitorImportRequest extends FormRequest
             'csv_file.file' => 'The uploaded file must be a valid file.',
             'csv_file.mimes' => 'The file must be a CSV file (.csv or .txt).',
             'csv_file.max' => "The file size must not exceed {$maxUploadSizeMB}MB.",
+            'file_type.required' => 'Please select the subscriber file type.',
+            'file_type.in' => 'Invalid file type selected.',
         ];
     }
 
@@ -86,6 +93,7 @@ class CampaignMonitorImportRequest extends FormRequest
     {
         return [
             'csv_file' => 'CSV file',
+            'file_type' => 'file type',
         ];
     }
 }

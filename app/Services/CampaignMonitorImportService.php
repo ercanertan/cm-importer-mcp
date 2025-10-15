@@ -21,6 +21,13 @@ class CampaignMonitorImportService
         $this->config = config('campaign-monitor');
     }
 
+    protected function convertToFieldKey($fieldName)
+    {
+        // Remove spaces and special characters to create a clean field_key
+        // Example: "Ellucian Fringe" becomes "EllucianFringe"
+        return str_replace(' ', '', $fieldName);
+    }
+
     protected function normalizeHeaders($headers)
     {
         $normalizedHeaders = [];
@@ -58,7 +65,8 @@ class CampaignMonitorImportService
                 $normalizedHeaders[] = 'permission_to_track';
             }
             else {
-                $normalizedHeaders[] = $trimmedHeader;
+                // Convert to field_key format (no spaces) for custom fields
+                $normalizedHeaders[] = $this->convertToFieldKey($trimmedHeader);
             }
         }
 
@@ -297,7 +305,7 @@ class CampaignMonitorImportService
             $user->email = $email;
             $fullname = $this->buildFullName($rowData);
             $user->fullname = $fullname ?: '';
-            $user->cm_status = $this->config['default_status'] ?? 'active';
+            $user->cm_status = $this->determineStatus();
 
             // Handle subscription date
             if (isset($rowData['cm_subscribed_at']) && !empty($rowData['cm_subscribed_at'])) {
@@ -333,7 +341,14 @@ class CampaignMonitorImportService
                 $updated = true;
             }
 
-            if (isset($rowData['cm_status']) && $user->cm_status !== $rowData['cm_status']) {
+            // Update status based on file_type (unless file_type is 'all')
+            $fileType = $this->log->file_type ?? 'all';
+            if ($fileType !== 'all') {
+                if ($user->cm_status !== $fileType) {
+                    $user->cm_status = $fileType;
+                    $updated = true;
+                }
+            } elseif (isset($rowData['cm_status']) && $user->cm_status !== $rowData['cm_status']) {
                 $user->cm_status = $rowData['cm_status'];
                 $updated = true;
             }
@@ -393,10 +408,14 @@ class CampaignMonitorImportService
                 continue;
             }
 
+            // Generate a readable field_name by adding spaces before capital letters
+            // Example: "EllucianFringe" becomes "Ellucian Fringe"
+            $fieldName = preg_replace('/([a-z])([A-Z])/', '$1 $2', $fieldKey);
+
             $field = CmCustomField::firstOrCreate(
                 ['field_key' => $fieldKey],
                 [
-                    'field_name' => ucwords(str_replace('_', ' ', $fieldKey)),
+                    'field_name' => $fieldName,
                     'data_type' => $this->detectDataType($value),
                     'is_active' => true
                 ]
@@ -471,13 +490,14 @@ class CampaignMonitorImportService
         ]);
     }
 
-    public function createImportLogForFile($filePath, $storagePath = null)
+    public function createImportLogForFile($filePath, $storagePath = null, $fileType = 'all')
     {
         $fileHash = hash_file('sha256', $filePath);
         return CmImportLog::create([
             'filename' => basename($filePath),
             'file_hash' => $fileHash,
             'storage_path' => $storagePath,
+            'file_type' => $fileType,
             'status' => 'pending'
         ]);
     }
@@ -953,6 +973,19 @@ class CampaignMonitorImportService
         }
     }
 
+    protected function determineStatus()
+    {
+        // If file_type is set and not 'all', use it as the status
+        $fileType = $this->log->file_type ?? 'all';
+
+        if ($fileType !== 'all') {
+            return $fileType;
+        }
+
+        // Otherwise use the default status from config
+        return $this->config['default_status'] ?? 'active';
+    }
+
     protected function getExistingUsersByEmail($emails)
     {
         return User::whereIn('email', $emails)
@@ -964,10 +997,14 @@ class CampaignMonitorImportService
     protected function prepareUserInsertData($rowData)
     {
         $fullname = $this->buildFullName($rowData);
+
+        // Determine status based on file_type from the import log
+        $status = $this->determineStatus();
+
         return [
             'email' => $rowData['email'],
             'fullname' => $fullname ?: '',
-            'cm_status' => $this->config['default_status'] ?? 'active',
+            'cm_status' => $status,
             'cm_subscribed_at' => isset($rowData['cm_subscribed_at']) && !empty($rowData['cm_subscribed_at'])
                 ? $this->parseDate($rowData['cm_subscribed_at'])
                 : now()->format('Y-m-d H:i:s'),
@@ -995,7 +1032,13 @@ class CampaignMonitorImportService
             $updates['cm_subscriber_id'] = $rowData['cm_subscriber_id'];
         }
 
-        if (isset($rowData['cm_status']) && $existingUser['cm_status'] !== $rowData['cm_status']) {
+        // Update status based on file_type (unless file_type is 'all')
+        $fileType = $this->log->file_type ?? 'all';
+        if ($fileType !== 'all') {
+            if ($existingUser['cm_status'] !== $fileType) {
+                $updates['cm_status'] = $fileType;
+            }
+        } elseif (isset($rowData['cm_status']) && $existingUser['cm_status'] !== $rowData['cm_status']) {
             $updates['cm_status'] = $rowData['cm_status'];
         }
 
@@ -1155,10 +1198,14 @@ class CampaignMonitorImportService
     protected function ensureCustomFieldsExist($fieldKeys)
     {
         foreach ($fieldKeys as $fieldKey) {
+            // Generate a readable field_name by adding spaces before capital letters
+            // Example: "EllucianFringe" becomes "Ellucian Fringe"
+            $fieldName = preg_replace('/([a-z])([A-Z])/', '$1 $2', $fieldKey);
+
             CmCustomField::firstOrCreate(
                 ['field_key' => $fieldKey],
                 [
-                    'field_name' => ucwords(str_replace('_', ' ', $fieldKey)),
+                    'field_name' => $fieldName,
                     'data_type' => 'text',
                     'is_active' => true
                 ]

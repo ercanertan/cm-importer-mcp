@@ -30,6 +30,10 @@ class CampaignMonitorImportController extends Controller
     {
         try {
             $file = $request->file('csv_file');
+            // If file type selection is disabled, default to 'active'
+            $fileType = config('campaign-monitor.enable_file_type_selection', false)
+                ? $request->input('file_type', 'active')
+                : 'active';
             $filename = time() . '_' . $file->getClientOriginalName();
             $filePath = $file->storeAs('campaign-monitor-imports', $filename, 'local');
             $fullPath = Storage::path($filePath);
@@ -46,6 +50,7 @@ class CampaignMonitorImportController extends Controller
             return view('campaign-monitor.import', [
                 'uploadedFile' => $filePath,
                 'preview' => $preview,
+                'fileType' => $fileType,
                 'recentImports' => $this->importService->getImportHistory()
             ]);
 
@@ -57,21 +62,32 @@ class CampaignMonitorImportController extends Controller
 
     public function import(Request $request)
     {
-        $request->validate([
-            'file_path' => 'required|string'
-        ]);
+        $validationRules = [
+            'file_path' => 'required|string',
+        ];
+
+        // Only require file_type validation if the feature is enabled
+        if (config('campaign-monitor.enable_file_type_selection', false)) {
+            $validationRules['file_type'] = 'required|string|in:all,active,bounced,deleted,unsubscribed';
+        }
+
+        $request->validate($validationRules);
 
         try {
             $filePath = Storage::path($request->file_path);
+            // If file type selection is disabled, default to 'active'
+            $fileType = config('campaign-monitor.enable_file_type_selection', false)
+                ? $request->input('file_type', 'active')
+                : 'active';
 
             if (config('campaign-monitor.queue_enabled', false)) {
-                ImportCampaignMonitorCsvJob::dispatch($filePath);
+                ImportCampaignMonitorCsvJob::dispatch($filePath, $fileType);
 
                 return redirect()->route('campaign-monitor.import')
                     ->with('success', 'Import job has been queued and will be processed in the background.');
             } else {
                 // Create import log entry and store file path in log
-                $log = $this->importService->createImportLogForFile($filePath, $request->file_path);
+                $log = $this->importService->createImportLogForFile($filePath, $request->file_path, $fileType);
 
                 // Redirect to Livewire progress component
                 return redirect()->route('campaign-monitor.import-progress', [
