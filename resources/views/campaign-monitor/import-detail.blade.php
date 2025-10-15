@@ -250,6 +250,12 @@
                                 <dt class="text-sm text-gray-600">Import ID:</dt>
                                 <dd class="text-sm font-medium">#{{ $import->id }}</dd>
                             </div>
+                            @if($import->file_type)
+                            <div class="flex justify-between">
+                                <dt class="text-sm text-gray-600">File Type:</dt>
+                                <dd class="text-sm font-medium">{{ ucfirst($import->file_type) }}</dd>
+                            </div>
+                            @endif
                         </dl>
                     </div>
 
@@ -264,6 +270,12 @@
                                 <dt class="text-sm text-gray-600">Duration:</dt>
                                 <dd class="text-sm font-medium">{{ $import->duration ? $import->duration . ' seconds' : 'N/A' }}</dd>
                             </div>
+                            @if($import->user)
+                            <div class="flex justify-between">
+                                <dt class="text-sm text-gray-600">Imported By:</dt>
+                                <dd class="text-sm font-medium">{{ $import->user->fullname ?? $import->user->email }}</dd>
+                            </div>
+                            @endif
                         </dl>
                     </div>
                 </div>

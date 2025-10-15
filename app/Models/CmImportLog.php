@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class CmImportLog extends Model
 {
     protected $fillable = [
+        'user_id',
         'filename',
         'file_hash',
         'storage_path',
@@ -123,5 +124,13 @@ class CmImportLog extends Model
 
         $endTime = $this->completed_at ?? now();
         return $this->started_at->diffInSeconds($endTime);
+    }
+
+    /**
+     * Get the user who initiated this import
+     */
+    public function user()
+    {
+        return $this->belongsTo(User::class);
     }
 }

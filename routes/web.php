@@ -33,10 +33,15 @@ Route::middleware(['auth'])->group(function () {
 });
 
 // Campaign Monitor Import Routes
+// TODO: Add authorization middleware when user roles are implemented
+// Example: ->middleware(['auth', 'can:import-campaign-monitor']) or ->middleware(['auth', 'role:super-admin'])
 Route::prefix('campaign-monitor')->name('campaign-monitor.')->group(function () {
+    // Import pages - should be restricted to super-admin only
     Route::get('/import', [CampaignMonitorImportController::class, 'index'])->name('import');
     Route::post('/upload', [CampaignMonitorImportController::class, 'upload'])->name('upload');
     Route::post('/import', [CampaignMonitorImportController::class, 'import'])->name('import.process');
+
+    // View import details - can be accessible to more roles if needed
     Route::get('/import/{id}', [CampaignMonitorImportController::class, 'show'])->name('show');
     Route::post('/preview', [CampaignMonitorImportController::class, 'preview'])->name('preview');
     Route::get('/status/{id}', [CampaignMonitorImportController::class, 'status'])->name('status');

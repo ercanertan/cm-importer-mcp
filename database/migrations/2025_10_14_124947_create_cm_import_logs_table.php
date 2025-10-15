@@ -13,6 +13,7 @@ return new class extends Migration
     {
         Schema::create('cm_import_logs', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('user_id')->nullable()->constrained('users')->onDelete('set null');
             $table->string('filename')->nullable();
             $table->string('file_hash', 64)->nullable();
             $table->string('storage_path')->nullable();
@@ -35,6 +36,7 @@ return new class extends Migration
             $table->timestamp('completed_at')->nullable();
             $table->timestamps();
 
+            $table->index('user_id');
             $table->index('status');
             $table->index('created_at');
             $table->index('file_hash');

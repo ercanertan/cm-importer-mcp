@@ -109,6 +109,9 @@ class CampaignMonitorImportController extends Controller
             abort(404);
         }
 
+        // Eager load the user relationship
+        $import->load('user');
+
         // Get all existing custom fields from before this import
         $existingFieldKeys = \App\Models\CmCustomField::where('created_at', '<', $import->created_at)
             ->pluck('field_key')

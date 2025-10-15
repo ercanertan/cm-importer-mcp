@@ -496,6 +496,7 @@ class CampaignMonitorImportService
     protected function createImportLog($filename, $fileHash = null)
     {
         return CmImportLog::create([
+            'user_id' => auth()->id(),
             'filename' => $filename,
             'file_hash' => $fileHash,
             'status' => 'pending'
@@ -506,6 +507,7 @@ class CampaignMonitorImportService
     {
         $fileHash = hash_file('sha256', $filePath);
         return CmImportLog::create([
+            'user_id' => auth()->id(),
             'filename' => basename($filePath),
             'file_hash' => $fileHash,
             'storage_path' => $storagePath,
