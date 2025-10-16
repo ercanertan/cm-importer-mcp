@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\User;
 use App\Models\CmCustomField;
 use App\Models\CmImportLog;
+use App\Models\Organization;
+use App\Models\Domain;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Exception;
@@ -1052,9 +1054,20 @@ class CampaignMonitorImportService
             $status = $this->determineStatus();
         }
 
+        // Extract domain and get/create organization
+        $domain = Domain::findOrCreateByEmail($rowData['email']);
+        $organization = $this->getOrCreateDefaultOrganization();
+
+        // Associate domain with organization if not already associated
+        if ($domain && $organization) {
+            $organization->domains()->syncWithoutDetaching([$domain->id]);
+        }
+
         return [
             'email' => $rowData['email'],
             'fullname' => $fullname ?: '',
+            'organization_id' => $organization?->id,
+            'domain_id' => $domain?->id,
             'cm_status' => $status,
             'cm_subscribed_at' => isset($rowData['cm_subscribed_at']) && !empty($rowData['cm_subscribed_at'])
                 ? $this->parseDate($rowData['cm_subscribed_at'])
@@ -1080,6 +1093,25 @@ class CampaignMonitorImportService
 
         if ($newName && $existingUser['fullname'] !== $newName) {
             $updates['fullname'] = $newName;
+        }
+
+        // Update organization_id and domain_id if they're null
+        if (empty($existingUser['organization_id']) || empty($existingUser['domain_id'])) {
+            $domain = Domain::findOrCreateByEmail($rowData['email']);
+            $organization = $this->getOrCreateDefaultOrganization();
+
+            // Associate domain with organization if not already associated
+            if ($domain && $organization) {
+                $organization->domains()->syncWithoutDetaching([$domain->id]);
+            }
+
+            if (empty($existingUser['organization_id']) && $organization) {
+                $updates['organization_id'] = $organization->id;
+            }
+
+            if (empty($existingUser['domain_id']) && $domain) {
+                $updates['domain_id'] = $domain->id;
+            }
         }
 
         if (isset($rowData['cm_subscriber_id']) && $existingUser['cm_subscriber_id'] !== $rowData['cm_subscriber_id']) {
@@ -1147,21 +1179,23 @@ class CampaignMonitorImportService
         if (empty($users)) return;
 
         // MySQL has a limit on placeholders (~65535).
-        // With 9 columns per row, we can safely insert ~7000 rows at once
+        // With 11 columns per row, we can safely insert ~5900 rows at once
         // Use configurable chunk size to be safe
         $chunkSize = $this->config['pdo_chunk_size'] ?? 500;
         $chunks = array_chunk($users, $chunkSize);
 
         foreach ($chunks as $chunk) {
-            $sql = "INSERT INTO users (email, fullname, cm_status, cm_subscribed_at, cm_unsubscribed_at, cm_status_changed_at, permission_to_track, created_at, updated_at) VALUES ";
+            $sql = "INSERT INTO users (email, fullname, organization_id, domain_id, cm_status, cm_subscribed_at, cm_unsubscribed_at, cm_status_changed_at, permission_to_track, created_at, updated_at) VALUES ";
             $values = [];
             $params = [];
 
             foreach ($chunk as $user) {
-                $values[] = "(?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                $values[] = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 $params = array_merge($params, [
                     $user['email'],
                     $user['fullname'],
+                    $user['organization_id'] ?? null,
+                    $user['domain_id'] ?? null,
                     $user['cm_status'],
                     $user['cm_subscribed_at'],
                     $user['cm_unsubscribed_at'],
@@ -1341,5 +1375,20 @@ class CampaignMonitorImportService
             'preview' => $preview,
             'custom_fields' => $this->detectCustomFields($normalizedHeaders)
         ];
+    }
+
+    /**
+     * Get or create the default organization
+     * All imported users will be assigned to this organization
+     */
+    protected function getOrCreateDefaultOrganization()
+    {
+        return Organization::firstOrCreate(
+            ['name' => 'Default Organization'],
+            [
+                'description' => 'Default organization for imported users',
+                'is_active' => true
+            ]
+        );
     }
 }

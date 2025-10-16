@@ -15,6 +15,15 @@
                 <flux:navlist.group :heading="__('Platform')" class="grid">
                     <flux:navlist.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>{{ __('Dashboard') }}</flux:navlist.item>
                 </flux:navlist.group>
+
+                <flux:navlist.group :heading="__('Campaign Monitor')" class="grid">
+                    <flux:navlist.item icon="arrow-up-tray" :href="route('campaign-monitor.import')" :current="request()->routeIs('campaign-monitor.*')" wire:navigate>{{ __('Import') }}</flux:navlist.item>
+                </flux:navlist.group>
+
+                <flux:navlist.group :heading="__('Administration')" class="grid">
+                    <flux:navlist.item icon="building-office-2" :href="route('admin.organizations.index')" :current="request()->routeIs('admin.organizations.*')" wire:navigate>{{ __('Organizations') }}</flux:navlist.item>
+                    <flux:navlist.item icon="globe-alt" :href="route('admin.domains.index')" :current="request()->routeIs('admin.domains.*')" wire:navigate>{{ __('Domains') }}</flux:navlist.item>
+                </flux:navlist.group>
             </flux:navlist>
 
             <flux:spacer />

@@ -24,10 +24,13 @@ class User extends Authenticatable
         'fullname',
         'email',
         'password',
+        'organization_id',
+        'domain_id',
         'cm_subscriber_id',
         'cm_status',
         'cm_subscribed_at',
         'cm_unsubscribed_at',
+        'cm_status_changed_at',
         'permission_to_track',
     ];
 
@@ -55,6 +58,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'cm_subscribed_at' => 'datetime',
             'cm_unsubscribed_at' => 'datetime',
+            'cm_status_changed_at' => 'datetime',
             'permission_to_track' => 'boolean',
         ];
     }
@@ -69,6 +73,22 @@ class User extends Authenticatable
             ->take(2)
             ->map(fn ($word) => Str::substr($word, 0, 1))
             ->implode('');
+    }
+
+    /**
+     * Get the organization that the user belongs to
+     */
+    public function organization()
+    {
+        return $this->belongsTo(Organization::class);
+    }
+
+    /**
+     * Get the domain of the user
+     */
+    public function domain()
+    {
+        return $this->belongsTo(Domain::class);
     }
 
     public function customFieldValues()

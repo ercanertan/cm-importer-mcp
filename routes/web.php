@@ -30,6 +30,14 @@ Route::middleware(['auth'])->group(function () {
             ),
         )
         ->name('two-factor.show');
+
+    // Admin Organization Management
+    Route::get('/admin/organizations', \App\Livewire\Admin\Organizations\Index::class)
+        ->name('admin.organizations.index');
+
+    // Admin Domain Management
+    Route::get('/admin/domains', \App\Livewire\Admin\Domains\Index::class)
+        ->name('admin.domains.index');
 });
 
 // Campaign Monitor Import Routes
@@ -54,5 +62,21 @@ Route::prefix('campaign-monitor')->name('campaign-monitor.')->group(function () 
     Route::post('/start-import/{importId}', [CampaignMonitorImportController::class, 'startImport'])
         ->name('start-import');
 });
+
+// Admin Domain Management Routes (Old API - Replaced by Livewire UI)
+// These routes are commented out as all functionality is now handled by Livewire components
+// If you need API endpoints, create them under a different prefix like /api/admin/domains
+/*
+Route::prefix('admin/domains')->name('admin.domains.')->group(function () {
+    Route::get('/', [DomainController::class, 'index'])->name('index');
+    Route::post('/', [DomainController::class, 'store'])->name('store');
+    Route::get('/{id}', [DomainController::class, 'show'])->name('show');
+    Route::post('/{id}/sync', [DomainController::class, 'sync'])->name('sync');
+    Route::post('/{id}/associate-organization', [DomainController::class, 'associateOrganization'])->name('associate-organization');
+    Route::post('/{id}/dissociate-organization', [DomainController::class, 'dissociateOrganization'])->name('dissociate-organization');
+    Route::post('/sync-all', [DomainController::class, 'syncAll'])->name('sync-all');
+    Route::delete('/{id}', [DomainController::class, 'destroy'])->name('destroy');
+});
+*/
 
 require __DIR__.'/auth.php';
