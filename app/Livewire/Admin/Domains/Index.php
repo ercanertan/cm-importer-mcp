@@ -186,51 +186,21 @@ class Index extends Component
                 'domain' => strtolower(trim($this->domain)),
             ]);
 
-            // Remove Default Organization if assigning to specific organizations
-            $defaultOrganization = Organization::where('name', 'Default Organization')->first();
+            // Sync organizations to domain (no auto-removal of Default Organization)
             $orgIds = $this->selectedOrganizations;
-
-            if ($defaultOrganization && !empty($orgIds)) {
-                // Check if we're assigning to non-default organizations
-                $hasNonDefaultOrgs = collect($orgIds)->filter(function($id) use ($defaultOrganization) {
-                    return $id !== $defaultOrganization->id;
-                })->isNotEmpty();
-
-                // If there are specific organizations, remove Default Organization
-                if ($hasNonDefaultOrgs) {
-                    $orgIds = array_diff($orgIds, [$defaultOrganization->id]);
-                }
-            }
-
-            // Sync organizations to domain
             $this->domainToEdit->organizations()->sync($orgIds);
 
-            // Update users: detach Default Organization and assign to new organizations
-            if ($defaultOrganization && !empty($orgIds)) {
+            // Update users to match domain's organizations
+            if (!empty($orgIds)) {
                 $users = \App\Models\User::where('email', 'like', '%@' . $this->domainToEdit->domain)->get();
 
                 foreach ($users as $user) {
-                    // Get current user organizations
-                    $currentUserOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
+                    // Sync user to the same organizations as the domain
+                    $user->organizations()->sync($orgIds);
 
-                    // Remove Default Organization
-                    $currentUserOrgIds = array_diff($currentUserOrgIds, [$defaultOrganization->id]);
-
-                    // Add new organizations from the domain
-                    foreach ($orgIds as $orgId) {
-                        if (!in_array($orgId, $currentUserOrgIds)) {
-                            $currentUserOrgIds[] = $orgId;
-                        }
-                    }
-
-                    // Sync user organizations
-                    $user->organizations()->sync($currentUserOrgIds);
-
-                    // Update legacy organization_id to first organization if user was in Default Organization
-                    if ($user->organization_id === $defaultOrganization->id) {
-                        $user->organization_id = $orgIds[0] ?? null;
-                        $user->save();
-                    }
+                    // Update legacy organization_id to first organization
+                    $user->organization_id = $orgIds[0] ?? null;
+                    $user->save();
                 }
             }
 
@@ -349,64 +319,26 @@ class Index extends Component
         ]);
 
         try {
-            // Remove Default Organization if assigning to specific organizations
-            $defaultOrganization = Organization::where('name', 'Default Organization')->first();
+            // Sync organizations to domain (no auto-removal of Default Organization)
             $orgIds = $this->selectedOrganizations;
-
-            if ($defaultOrganization && !empty($orgIds)) {
-                // Check if we're assigning to non-default organizations
-                $hasNonDefaultOrgs = collect($orgIds)->filter(function($id) use ($defaultOrganization) {
-                    return $id !== $defaultOrganization->id;
-                })->isNotEmpty();
-
-                // If there are specific organizations, remove Default Organization
-                if ($hasNonDefaultOrgs) {
-                    $orgIds = array_diff($orgIds, [$defaultOrganization->id]);
-                }
-            }
-
-            // Sync organizations to domain
             $this->domainToAssociate->organizations()->sync($orgIds);
 
-            // Update users: detach Default Organization and assign to new organizations
-            if ($defaultOrganization && !empty($orgIds)) {
+            // Update users to match domain's organizations
+            if (!empty($orgIds)) {
                 $users = \App\Models\User::where('email', 'like', '%@' . $this->domainToAssociate->domain)->get();
 
                 $updatedCount = 0;
                 foreach ($users as $user) {
-                    $updated = false;
+                    // Sync user to the same organizations as the domain
+                    $user->organizations()->sync($orgIds);
+                    $updatedCount++;
 
-                    // Get current user organizations
-                    $currentUserOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
-
-                    // Check if user is in Default Organization
-                    $wasInDefault = in_array($defaultOrganization->id, $currentUserOrgIds);
-
-                    // Remove Default Organization
-                    $currentUserOrgIds = array_diff($currentUserOrgIds, [$defaultOrganization->id]);
-
-                    // Add new organizations from the domain
-                    foreach ($orgIds as $orgId) {
-                        if (!in_array($orgId, $currentUserOrgIds)) {
-                            $currentUserOrgIds[] = $orgId;
-                            $updated = true;
-                        }
-                    }
-
-                    // Sync user organizations
-                    if ($updated || $wasInDefault) {
-                        $user->organizations()->sync($currentUserOrgIds);
-                        $updatedCount++;
-
-                        // Update legacy organization_id to first organization if user was in Default Organization
-                        if ($user->organization_id === $defaultOrganization->id) {
-                            $user->organization_id = $orgIds[0] ?? null;
-                            $user->save();
-                        }
-                    }
+                    // Update legacy organization_id to first organization
+                    $user->organization_id = $orgIds[0] ?? null;
+                    $user->save();
                 }
 
-                session()->flash('message', "Organizations updated. {$updatedCount} users reassigned from Default Organization.");
+                session()->flash('message', "Organizations updated. {$updatedCount} users reassigned.");
             } else {
                 session()->flash('message', 'Organizations updated successfully.');
             }
