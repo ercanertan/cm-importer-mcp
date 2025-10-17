@@ -186,25 +186,38 @@ class Index extends Component
                 'domain' => strtolower(trim($this->domain)),
             ]);
 
-            // Sync organizations to domain (no auto-removal of Default Organization)
             $orgIds = $this->selectedOrganizations;
-            $this->domainToEdit->organizations()->sync($orgIds);
 
-            // Update users to match domain's organizations
+            // If organizations are being updated, dispatch background job
             if (!empty($orgIds)) {
-                $users = \App\Models\User::where('email', 'like', '%@' . $this->domainToEdit->domain)->get();
+                // Create sync log entry
+                $syncLog = \App\Models\SyncLog::create([
+                    'type' => 'sync_domain_organizations',
+                    'status' => 'pending',
+                    'user_id' => auth()->id(),
+                    'total_items' => 0,
+                    'processed_items' => 0,
+                    'successful_items' => 0,
+                    'failed_items' => 0,
+                    'metadata' => [
+                        'domain_id' => $this->domainToEdit->id,
+                        'domain_name' => $this->domainToEdit->domain,
+                        'organization_ids' => $orgIds,
+                    ],
+                ]);
 
-                foreach ($users as $user) {
-                    // Sync user to the same organizations as the domain
-                    $user->organizations()->sync($orgIds);
+                // Dispatch the job to run in the background
+                \App\Jobs\SyncDomainOrganizationsJob::dispatch(
+                    $syncLog->id,
+                    $this->domainToEdit->id,
+                    $orgIds
+                );
 
-                    // Update legacy organization_id to first organization
-                    $user->organization_id = $orgIds[0] ?? null;
-                    $user->save();
-                }
+                session()->flash('message', "Domain updated. Organization sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
+            } else {
+                session()->flash('message', 'Domain updated successfully.');
             }
 
-            session()->flash('message', 'Domain updated successfully. Users have been reassigned.');
             $this->closeEditModal();
         } catch (\Exception $e) {
             Log::error('Failed to update domain', [
@@ -319,26 +332,34 @@ class Index extends Component
         ]);
 
         try {
-            // Sync organizations to domain (no auto-removal of Default Organization)
             $orgIds = $this->selectedOrganizations;
-            $this->domainToAssociate->organizations()->sync($orgIds);
 
-            // Update users to match domain's organizations
+            // If organizations are being updated, dispatch background job
             if (!empty($orgIds)) {
-                $users = \App\Models\User::where('email', 'like', '%@' . $this->domainToAssociate->domain)->get();
+                // Create sync log entry
+                $syncLog = \App\Models\SyncLog::create([
+                    'type' => 'sync_domain_organizations',
+                    'status' => 'pending',
+                    'user_id' => auth()->id(),
+                    'total_items' => 0,
+                    'processed_items' => 0,
+                    'successful_items' => 0,
+                    'failed_items' => 0,
+                    'metadata' => [
+                        'domain_id' => $this->domainToAssociate->id,
+                        'domain_name' => $this->domainToAssociate->domain,
+                        'organization_ids' => $orgIds,
+                    ],
+                ]);
 
-                $updatedCount = 0;
-                foreach ($users as $user) {
-                    // Sync user to the same organizations as the domain
-                    $user->organizations()->sync($orgIds);
-                    $updatedCount++;
+                // Dispatch the job to run in the background
+                \App\Jobs\SyncDomainOrganizationsJob::dispatch(
+                    $syncLog->id,
+                    $this->domainToAssociate->id,
+                    $orgIds
+                );
 
-                    // Update legacy organization_id to first organization
-                    $user->organization_id = $orgIds[0] ?? null;
-                    $user->save();
-                }
-
-                session()->flash('message', "Organizations updated. {$updatedCount} users reassigned.");
+                session()->flash('message', "Organization sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
             } else {
                 session()->flash('message', 'Organizations updated successfully.');
             }
