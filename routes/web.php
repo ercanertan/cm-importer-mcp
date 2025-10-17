@@ -38,6 +38,10 @@ Route::middleware(['auth'])->group(function () {
     // Admin Domain Management
     Route::get('/admin/domains', \App\Livewire\Admin\Domains\Index::class)
         ->name('admin.domains.index');
+
+    // Admin Sync Logs
+    Route::get('/admin/sync-logs', \App\Livewire\Admin\SyncLogs\Index::class)
+        ->name('admin.sync-logs.index');
 });
 
 // Campaign Monitor Import Routes

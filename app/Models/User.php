@@ -76,11 +76,19 @@ class User extends Authenticatable
     }
 
     /**
-     * Get the organization that the user belongs to
+     * Get the organization that the user belongs to (legacy single organization)
      */
     public function organization()
     {
         return $this->belongsTo(Organization::class);
+    }
+
+    /**
+     * Get all organizations that the user belongs to (many-to-many)
+     */
+    public function organizations()
+    {
+        return $this->belongsToMany(Organization::class)->withTimestamps();
     }
 
     /**

@@ -69,12 +69,28 @@ class DomainObserver
      */
     public function deleted(Domain $domain): void
     {
-        // Optionally: Set domain_id to null for all users with this domain
-        \App\Models\User::where('domain_id', $domain->id)
-            ->update(['domain_id' => null]);
+        // Find "Default Organization"
+        $defaultOrganization = \App\Models\Organization::where('name', 'Default Organization')->first();
 
-        Log::info('Domain deleted - users unlinked', [
-            'domain' => $domain->domain
+        // Get all users with this domain
+        $users = \App\Models\User::where('domain_id', $domain->id)->get();
+
+        foreach ($users as $user) {
+            // Remove domain association
+            $user->domain_id = null;
+
+            // Fallback to Default Organization if user has no other organization
+            // or if they were in an organization associated with this domain
+            if ($defaultOrganization && !$user->organization_id) {
+                $user->organization_id = $defaultOrganization->id;
+            }
+
+            $user->save();
+        }
+
+        Log::info('Domain deleted - users unlinked and moved to Default Organization', [
+            'domain' => $domain->domain,
+            'users_count' => $users->count()
         ]);
     }
 
@@ -107,8 +123,22 @@ class DomainObserver
      */
     public function forceDeleted(Domain $domain): void
     {
-        // Permanently remove domain references
-        \App\Models\User::where('domain_id', $domain->id)
-            ->update(['domain_id' => null]);
+        // Find "Default Organization"
+        $defaultOrganization = \App\Models\Organization::where('name', 'Default Organization')->first();
+
+        // Get all users with this domain
+        $users = \App\Models\User::where('domain_id', $domain->id)->get();
+
+        foreach ($users as $user) {
+            // Remove domain association
+            $user->domain_id = null;
+
+            // Fallback to Default Organization if user has no other organization
+            if ($defaultOrganization && !$user->organization_id) {
+                $user->organization_id = $defaultOrganization->id;
+            }
+
+            $user->save();
+        }
     }
 }

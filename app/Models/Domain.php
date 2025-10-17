@@ -10,12 +10,9 @@ class Domain extends Model
 {
     protected $fillable = [
         'domain',
-        'user_count',
     ];
 
-    protected $casts = [
-        'user_count' => 'integer',
-    ];
+    protected $casts = [];
 
     /**
      * Get all users with this domain
@@ -33,6 +30,19 @@ class Domain extends Model
         return $this->belongsToMany(Organization::class, 'organization_domain')
             ->withTimestamps();
     }
+
+    /**
+     * Get the user count dynamically (calculated in real-time)
+     */
+    public function getUserCountAttribute(): int
+    {
+        return $this->users()->count();
+    }
+
+    /**
+     * Append user_count to array/JSON representation
+     */
+    protected $appends = ['user_count'];
 
     /**
      * Extract domain from email address
@@ -59,30 +69,13 @@ class Domain extends Model
         }
 
         return self::firstOrCreate(
-            ['domain' => $domainName],
-            ['user_count' => 0]
+            ['domain' => $domainName]
         );
     }
 
     /**
-     * Increment user count
-     */
-    public function incrementUserCount(): void
-    {
-        $this->increment('user_count');
-    }
-
-    /**
-     * Decrement user count
-     */
-    public function decrementUserCount(): void
-    {
-        $this->decrement('user_count');
-    }
-
-    /**
      * Scan database and assign all users with this domain to it
-     * and to the associated organizations
+     * and to the associated organizations (many-to-many)
      */
     public function assignUsersFromDomain(): array
     {
@@ -93,36 +86,46 @@ class Domain extends Model
         $assignedCount = 0;
         $updatedOrganizations = [];
 
+        // Get all organizations associated with this domain
+        $domainOrganizations = $this->organizations()->pluck('organizations.id')->toArray();
+
         foreach ($users as $user) {
             $updated = false;
 
             // Update user's domain_id if not set or different
             if ($user->domain_id !== $this->id) {
                 $user->domain_id = $this->id;
+                $user->save();
                 $updated = true;
             }
 
-            // Get the first organization associated with this domain (if any)
-            $organization = $this->organizations()->first();
+            // Assign user to ALL organizations associated with this domain
+            if (!empty($domainOrganizations)) {
+                // Get current user's organization IDs
+                $currentOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
 
-            // If this domain has an associated organization and user doesn't have one
-            if ($organization && (!$user->organization_id || $user->organization_id !== $organization->id)) {
-                $user->organization_id = $organization->id;
-                $updated = true;
+                // Find organizations to add (domain orgs that user doesn't have)
+                $orgsToAdd = array_diff($domainOrganizations, $currentOrgIds);
 
-                if (!in_array($organization->id, $updatedOrganizations)) {
-                    $updatedOrganizations[] = $organization->id;
+                if (!empty($orgsToAdd)) {
+                    // Attach new organizations to user
+                    $user->organizations()->attach($orgsToAdd);
+                    $updated = true;
+
+                    $updatedOrganizations = array_unique(array_merge($updatedOrganizations, $orgsToAdd));
+                }
+
+                // Update legacy organization_id field to first organization if not set
+                if (!$user->organization_id && !empty($domainOrganizations)) {
+                    $user->organization_id = $domainOrganizations[0];
+                    $user->save();
                 }
             }
 
             if ($updated) {
-                $user->save();
                 $assignedCount++;
             }
         }
-
-        // Update user count for this domain
-        $this->update(['user_count' => $users->count()]);
 
         return [
             'assigned_count' => $assignedCount,
@@ -132,12 +135,29 @@ class Domain extends Model
     }
 
     /**
-     * Assign users to a specific organization for this domain
+     * Assign users to a specific organization for this domain (many-to-many)
      */
     public function assignUsersToOrganization(Organization $organization): int
     {
-        // Ensure this domain is associated with the organization
-        $this->organizations()->syncWithoutDetaching([$organization->id]);
+        // Find Default Organization
+        $defaultOrganization = Organization::where('name', 'Default Organization')->first();
+
+        // Get current organization IDs for this domain
+        $currentOrgIds = $this->organizations()->pluck('organizations.id')->toArray();
+
+        // If assigning to a non-default organization, remove Default Organization from domain
+        if ($defaultOrganization && $organization->id !== $defaultOrganization->id) {
+            // Remove Default Organization from the list
+            $currentOrgIds = array_diff($currentOrgIds, [$defaultOrganization->id]);
+        }
+
+        // Add the new organization
+        if (!in_array($organization->id, $currentOrgIds)) {
+            $currentOrgIds[] = $organization->id;
+        }
+
+        // Sync the updated organization list for the domain
+        $this->organizations()->sync($currentOrgIds);
 
         // Find all users with this domain
         $users = \App\Models\User::where('email', 'like', '%@' . $this->domain)
@@ -151,23 +171,27 @@ class Domain extends Model
             // Update domain_id
             if ($user->domain_id !== $this->id) {
                 $user->domain_id = $this->id;
+                $user->save();
                 $updated = true;
             }
 
-            // Update organization_id
+            // Add organization to user's organizations if not already present
+            $userOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
+            if (!in_array($organization->id, $userOrgIds)) {
+                $user->organizations()->attach($organization->id);
+                $updated = true;
+            }
+
+            // Update legacy organization_id field to this organization
             if ($user->organization_id !== $organization->id) {
                 $user->organization_id = $organization->id;
-                $updated = true;
+                $user->save();
             }
 
             if ($updated) {
-                $user->save();
                 $assignedCount++;
             }
         }
-
-        // Update user count
-        $this->update(['user_count' => $users->count()]);
 
         return $assignedCount;
     }

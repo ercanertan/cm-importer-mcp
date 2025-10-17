@@ -1,5 +1,5 @@
 <div class="py-12">
-    <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+    <div class="bg-white max-w-7xl mx-auto sm:px-6 lg:px-8">
         <div class="overflow-hidden shadow-sm sm:rounded-lg">
             <div class="p-6 text-gray-900">
                 <!-- Header -->
@@ -11,10 +11,16 @@
                     </button>
                 </div>
 
-                <!-- Flash Message -->
+                <!-- Flash Messages -->
                 @if (session()->has('message'))
                     <div class="mb-4 bg-green-100 border border-green-400 text-green-800 px-4 py-3 rounded-lg relative font-medium" role="alert">
-                        <span class="block sm:inline">{{ session('message') }}</span>
+                        <span class="block sm:inline">{!! session('message') !!}</span>
+                    </div>
+                @endif
+
+                @if (session()->has('error'))
+                    <div class="mb-4 bg-red-100 border border-red-400 text-red-800 px-4 py-3 rounded-lg relative font-medium" role="alert">
+                        <span class="block sm:inline">{{ session('error') }}</span>
                     </div>
                 @endif
 
@@ -100,34 +106,55 @@
 
     <!-- Create Modal -->
     @if($showCreateModal)
-        <div class="fixed z-10 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="fixed z-50 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
             <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity z-40" aria-hidden="true"></div>
                 <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full relative z-50">
                     <form wire:submit.prevent="createOrganization">
-                        <div class="px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Create Organization</h3>
+                        <div class="px-4 pt-5 pb-4 sm:p-6 sm:pb-4 max-h-[80vh] overflow-y-auto">
+                            <h3 class="text-lg leading-6 font-bold text-gray-900 mb-4">Create Organization</h3>
 
                             <div class="mb-4">
-                                <label for="name" class="block text-sm font-medium text-gray-700">Name *</label>
+                                <label for="name" class="block text-sm font-semibold text-gray-900 mb-2">Name *</label>
                                 <input wire:model="name" type="text" id="name"
-                                       class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                                @error('name') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                                       class="mt-1 block w-full border-2 border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 px-3 py-2">
+                                @error('name') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
                             </div>
 
                             <div class="mb-4">
-                                <label for="description" class="block text-sm font-medium text-Descriptionwhite">Description</label>
+                                <label for="description" class="block text-sm font-semibold text-gray-900 mb-2">Description</label>
                                 <textarea wire:model="description" id="description" rows="3"
-                                          class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></textarea>
-                                @error('description') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                                          class="mt-1 block w-full border-2 border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 px-3 py-2"></textarea>
+                                @error('description') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
                             </div>
 
                             <div class="mb-4">
-                                <label class="flex items-center">
+                                <label class="flex items-center cursor-pointer">
                                     <input wire:model="is_active" type="checkbox"
-                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50">
-                                    <span class="ml-2 text-sm text-gray-600">Active</span>
+                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4">
+                                    <span class="ml-2 text-sm font-medium text-gray-900">Active</span>
+                                </label>
+                            </div>
+
+                            <!-- Domains Section -->
+                            <div class="mb-4 pt-4 border-t-2 border-gray-200">
+                                <label for="domains" class="block text-sm font-semibold text-gray-900 mb-2">Associate Domains (Optional)</label>
+                                <input wire:model="domains" type="text" id="domains"
+                                       placeholder="example.com, company.com, organization.org"
+                                       class="mt-1 block w-full border-2 border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 px-3 py-2 placeholder-gray-500">
+                                @error('domains') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
+                                <p class="mt-1 text-xs text-gray-600">Enter domain names separated by commas (e.g., example.com, company.com)</p>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="flex items-start cursor-pointer">
+                                    <input wire:model="syncUsers" type="checkbox"
+                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4 mt-0.5">
+                                    <div class="ml-2">
+                                        <span class="text-sm font-medium text-gray-900">Sync Existing Users</span>
+                                        <p class="text-xs text-gray-600 mt-1">Automatically assign existing users with these domain emails to this organization</p>
+                                    </div>
                                 </label>
                             </div>
                         </div>
@@ -149,34 +176,55 @@
 
     <!-- Edit Modal -->
     @if($showEditModal && $organizationToEdit)
-        <div class="fixed z-10 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="fixed z-50 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
             <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity z-40" aria-hidden="true"></div>
                 <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full relative z-50">
                     <form wire:submit.prevent="updateOrganization">
-                        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Edit Organization</h3>
+                        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4 max-h-[80vh] overflow-y-auto">
+                            <h3 class="text-lg leading-6 font-bold text-gray-900 mb-4">Edit Organization</h3>
 
                             <div class="mb-4">
-                                <label for="edit_name" class="block text-sm font-medium text-gray-700">Name *</label>
+                                <label for="edit_name" class="block text-sm font-semibold text-gray-900 mb-2">Name *</label>
                                 <input wire:model="name" type="text" id="edit_name"
-                                       class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                                @error('name') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                                       class="mt-1 block w-full border-2 border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 px-3 py-2">
+                                @error('name') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
                             </div>
 
                             <div class="mb-4">
-                                <label for="edit_description" class="block text-sm font-medium text-gray-700">Description</label>
+                                <label for="edit_description" class="block text-sm font-semibold text-gray-900 mb-2">Description</label>
                                 <textarea wire:model="description" id="edit_description" rows="3"
-                                          class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></textarea>
-                                @error('description') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                                          class="mt-1 block w-full border-2 border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 px-3 py-2"></textarea>
+                                @error('description') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
                             </div>
 
                             <div class="mb-4">
-                                <label class="flex items-center">
+                                <label class="flex items-center cursor-pointer">
                                     <input wire:model="is_active" type="checkbox"
-                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50">
-                                    <span class="ml-2 text-sm text-gray-600">Active</span>
+                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4">
+                                    <span class="ml-2 text-sm font-medium text-gray-900">Active</span>
+                                </label>
+                            </div>
+
+                            <!-- Domains Section -->
+                            <div class="mb-4 pt-4 border-t-2 border-gray-200">
+                                <label for="edit_domains" class="block text-sm font-semibold text-gray-900 mb-2">Associate Domains (Optional)</label>
+                                <input wire:model="domains" type="text" id="edit_domains"
+                                       placeholder="example.com, company.com, organization.org"
+                                       class="mt-1 block w-full border-2 border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 px-3 py-2 placeholder-gray-500">
+                                @error('domains') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
+                                <p class="mt-1 text-xs text-gray-600">Enter domain names separated by commas. Remove all domains to unassociate them.</p>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="flex items-start cursor-pointer">
+                                    <input wire:model="syncUsers" type="checkbox"
+                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4 mt-0.5">
+                                    <div class="ml-2">
+                                        <span class="text-sm font-medium text-gray-900">Sync Users on Update</span>
+                                        <p class="text-xs text-gray-600 mt-1">Automatically assign existing users with these domain emails to this organization when updating</p>
+                                    </div>
                                 </label>
                             </div>
                         </div>
@@ -198,11 +246,11 @@
 
     <!-- Delete Confirmation Modal -->
     @if($showDeleteModal && $organizationToDelete)
-        <div class="fixed z-10 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="fixed z-50 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
             <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity z-40" aria-hidden="true"></div>
                 <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full relative z-50">
                     <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                         <div class="sm:flex sm:items-start">
                             <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">

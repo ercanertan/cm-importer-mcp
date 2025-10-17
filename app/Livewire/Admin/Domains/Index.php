@@ -21,12 +21,13 @@ class Index extends Component
     public $showAssociateModal = false;
     public $domainToAssociate = null;
     public $syncingDomain = null;
-    public $syncingAll = false;
 
     // Form fields
     public $domain = '';
     public $organization_id = null;
     public $selectedOrganizations = [];
+    public $domainUsers = [];
+    public $userOrganizationStats = [];
 
     protected $queryString = ['search'];
 
@@ -43,7 +44,7 @@ class Index extends Component
             ->when($this->search, function ($query) {
                 $query->where('domain', 'like', '%' . $this->search . '%');
             })
-            ->orderBy('user_count', 'desc')
+            ->orderBy('users_count', 'desc')
             ->paginate(15);
 
         $organizations = Organization::where('is_active', true)
@@ -78,8 +79,7 @@ class Index extends Component
 
         try {
             $newDomain = Domain::create([
-                'domain' => strtolower(trim($this->domain)),
-                'user_count' => 0
+                'domain' => strtolower(trim($this->domain))
             ]);
 
             // If organization is provided, associate it
@@ -107,6 +107,61 @@ class Index extends Component
         $this->domainToEdit = $domain;
         $this->domain = $domain->domain;
         $this->selectedOrganizations = $domain->organizations->pluck('id')->toArray();
+
+        // Load users associated with this domain, grouped by organization
+        $this->domainUsers = \App\Models\User::where('domain_id', $id)
+            ->with(['organization', 'organizations'])
+            ->orderBy('organization_id')
+            ->orderBy('fullname')
+            ->limit(100)
+            ->get()
+            ->toArray();
+
+        // Calculate organization statistics for users (many-to-many)
+        $allUsers = \App\Models\User::where('domain_id', $id)
+            ->with('organizations')
+            ->get();
+
+        // Count users per organization across all relationships
+        $orgStats = [];
+        foreach ($allUsers as $user) {
+            // Use many-to-many organizations if available, otherwise fall back to legacy organization
+            $userOrgs = $user->organizations->count() > 0
+                ? $user->organizations
+                : ($user->organization ? collect([$user->organization]) : collect());
+
+            foreach ($userOrgs as $org) {
+                if (!isset($orgStats[$org->id])) {
+                    $orgStats[$org->id] = [
+                        'id' => $org->id,
+                        'name' => $org->name,
+                        'count' => 0,
+                    ];
+                }
+                $orgStats[$org->id]['count']++;
+            }
+        }
+
+        // If no organizations found, check for users with no organization
+        if (empty($orgStats)) {
+            $usersWithoutOrg = $allUsers->filter(function($user) {
+                return $user->organizations->count() === 0 && !$user->organization;
+            })->count();
+
+            if ($usersWithoutOrg > 0) {
+                $orgStats[0] = [
+                    'id' => null,
+                    'name' => 'No Organization',
+                    'count' => $usersWithoutOrg,
+                ];
+            }
+        }
+
+        $this->userOrganizationStats = collect($orgStats)
+            ->sortByDesc('count')
+            ->values()
+            ->toArray();
+
         $this->showEditModal = true;
     }
 
@@ -114,7 +169,7 @@ class Index extends Component
     {
         $this->showEditModal = false;
         $this->domainToEdit = null;
-        $this->reset(['domain', 'selectedOrganizations']);
+        $this->reset(['domain', 'selectedOrganizations', 'domainUsers', 'userOrganizationStats']);
         $this->resetValidation();
     }
 
@@ -131,10 +186,55 @@ class Index extends Component
                 'domain' => strtolower(trim($this->domain)),
             ]);
 
-            // Sync organizations
-            $this->domainToEdit->organizations()->sync($this->selectedOrganizations);
+            // Remove Default Organization if assigning to specific organizations
+            $defaultOrganization = Organization::where('name', 'Default Organization')->first();
+            $orgIds = $this->selectedOrganizations;
 
-            session()->flash('message', 'Domain updated successfully.');
+            if ($defaultOrganization && !empty($orgIds)) {
+                // Check if we're assigning to non-default organizations
+                $hasNonDefaultOrgs = collect($orgIds)->filter(function($id) use ($defaultOrganization) {
+                    return $id !== $defaultOrganization->id;
+                })->isNotEmpty();
+
+                // If there are specific organizations, remove Default Organization
+                if ($hasNonDefaultOrgs) {
+                    $orgIds = array_diff($orgIds, [$defaultOrganization->id]);
+                }
+            }
+
+            // Sync organizations to domain
+            $this->domainToEdit->organizations()->sync($orgIds);
+
+            // Update users: detach Default Organization and assign to new organizations
+            if ($defaultOrganization && !empty($orgIds)) {
+                $users = \App\Models\User::where('email', 'like', '%@' . $this->domainToEdit->domain)->get();
+
+                foreach ($users as $user) {
+                    // Get current user organizations
+                    $currentUserOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
+
+                    // Remove Default Organization
+                    $currentUserOrgIds = array_diff($currentUserOrgIds, [$defaultOrganization->id]);
+
+                    // Add new organizations from the domain
+                    foreach ($orgIds as $orgId) {
+                        if (!in_array($orgId, $currentUserOrgIds)) {
+                            $currentUserOrgIds[] = $orgId;
+                        }
+                    }
+
+                    // Sync user organizations
+                    $user->organizations()->sync($currentUserOrgIds);
+
+                    // Update legacy organization_id to first organization if user was in Default Organization
+                    if ($user->organization_id === $defaultOrganization->id) {
+                        $user->organization_id = $orgIds[0] ?? null;
+                        $user->save();
+                    }
+                }
+            }
+
+            session()->flash('message', 'Domain updated successfully. Users have been reassigned.');
             $this->closeEditModal();
         } catch (\Exception $e) {
             Log::error('Failed to update domain', [
@@ -173,30 +273,28 @@ class Index extends Component
 
     public function syncAllDomains()
     {
-        $this->syncingAll = true;
-
         try {
-            $domains = Domain::all();
-            $totalAssigned = 0;
-
-            foreach ($domains as $domain) {
-                $result = $domain->assignUsersFromDomain();
-                $totalAssigned += $result['assigned_count'];
-            }
-
-            Log::info('All domains synced', [
-                'total_domains' => $domains->count(),
-                'total_assigned' => $totalAssigned
+            // Create sync log entry
+            $syncLog = \App\Models\SyncLog::create([
+                'type' => 'sync_all_domains',
+                'status' => 'pending',
+                'user_id' => auth()->id(),
             ]);
 
-            session()->flash('message', "Synced {$domains->count()} domains. {$totalAssigned} users updated.");
+            // Dispatch the job to run in the background
+            \App\Jobs\SyncAllDomainsJob::dispatch($syncLog->id);
+
+            Log::info('Sync all domains job dispatched', [
+                'user_id' => auth()->id(),
+                'sync_log_id' => $syncLog->id
+            ]);
+
+            session()->flash('message', "Domain sync started in the background (ID: #{$syncLog->id}). Check the sync logs to monitor progress.");
         } catch (\Exception $e) {
-            Log::error('Failed to sync all domains', [
+            Log::error('Failed to dispatch sync all domains job', [
                 'error' => $e->getMessage()
             ]);
-            session()->flash('error', 'Failed to sync domains: ' . $e->getMessage());
-        } finally {
-            $this->syncingAll = false;
+            session()->flash('error', 'Failed to start domain sync: ' . $e->getMessage());
         }
     }
 
@@ -251,12 +349,64 @@ class Index extends Component
         ]);
 
         try {
-            $this->domainToAssociate->organizations()->sync($this->selectedOrganizations);
+            // Remove Default Organization if assigning to specific organizations
+            $defaultOrganization = Organization::where('name', 'Default Organization')->first();
+            $orgIds = $this->selectedOrganizations;
 
-            // Trigger user assignment for newly associated organizations
-            if (!empty($this->selectedOrganizations)) {
-                $result = $this->domainToAssociate->assignUsersFromDomain();
-                session()->flash('message', "Organizations updated. {$result['assigned_count']} users reassigned.");
+            if ($defaultOrganization && !empty($orgIds)) {
+                // Check if we're assigning to non-default organizations
+                $hasNonDefaultOrgs = collect($orgIds)->filter(function($id) use ($defaultOrganization) {
+                    return $id !== $defaultOrganization->id;
+                })->isNotEmpty();
+
+                // If there are specific organizations, remove Default Organization
+                if ($hasNonDefaultOrgs) {
+                    $orgIds = array_diff($orgIds, [$defaultOrganization->id]);
+                }
+            }
+
+            // Sync organizations to domain
+            $this->domainToAssociate->organizations()->sync($orgIds);
+
+            // Update users: detach Default Organization and assign to new organizations
+            if ($defaultOrganization && !empty($orgIds)) {
+                $users = \App\Models\User::where('email', 'like', '%@' . $this->domainToAssociate->domain)->get();
+
+                $updatedCount = 0;
+                foreach ($users as $user) {
+                    $updated = false;
+
+                    // Get current user organizations
+                    $currentUserOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
+
+                    // Check if user is in Default Organization
+                    $wasInDefault = in_array($defaultOrganization->id, $currentUserOrgIds);
+
+                    // Remove Default Organization
+                    $currentUserOrgIds = array_diff($currentUserOrgIds, [$defaultOrganization->id]);
+
+                    // Add new organizations from the domain
+                    foreach ($orgIds as $orgId) {
+                        if (!in_array($orgId, $currentUserOrgIds)) {
+                            $currentUserOrgIds[] = $orgId;
+                            $updated = true;
+                        }
+                    }
+
+                    // Sync user organizations
+                    if ($updated || $wasInDefault) {
+                        $user->organizations()->sync($currentUserOrgIds);
+                        $updatedCount++;
+
+                        // Update legacy organization_id to first organization if user was in Default Organization
+                        if ($user->organization_id === $defaultOrganization->id) {
+                            $user->organization_id = $orgIds[0] ?? null;
+                            $user->save();
+                        }
+                    }
+                }
+
+                session()->flash('message', "Organizations updated. {$updatedCount} users reassigned from Default Organization.");
             } else {
                 session()->flash('message', 'Organizations updated successfully.');
             }

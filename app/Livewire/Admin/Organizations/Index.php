@@ -21,6 +21,8 @@ class Index extends Component
     public $name = '';
     public $description = '';
     public $is_active = true;
+    public $domains = '';
+    public $syncUsers = true;
 
     protected $queryString = ['search'];
 
@@ -47,15 +49,16 @@ class Index extends Component
 
     public function openCreateModal()
     {
-        $this->reset(['name', 'description', 'is_active']);
+        $this->reset(['name', 'description', 'is_active', 'domains', 'syncUsers']);
         $this->is_active = true;
+        $this->syncUsers = true;
         $this->showCreateModal = true;
     }
 
     public function closeCreateModal()
     {
         $this->showCreateModal = false;
-        $this->reset(['name', 'description', 'is_active']);
+        $this->reset(['name', 'description', 'is_active', 'domains', 'syncUsers']);
         $this->resetValidation();
     }
 
@@ -65,25 +68,73 @@ class Index extends Component
             'name' => 'required|string|max:255|unique:organizations,name',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'domains' => 'nullable|string',
+            'syncUsers' => 'boolean',
         ]);
 
-        Organization::create([
-            'name' => $this->name,
-            'description' => $this->description,
-            'is_active' => $this->is_active,
-        ]);
+        try {
+            $organization = Organization::create([
+                'name' => $this->name,
+                'description' => $this->description,
+                'is_active' => $this->is_active,
+            ]);
 
-        session()->flash('message', 'Organization created successfully.');
-        $this->closeCreateModal();
+            // Process domains if provided - dispatch background job
+            if (!empty($this->domains)) {
+                $domainList = array_map('trim', explode(',', $this->domains));
+                $domainList = array_filter($domainList); // Remove empty values
+
+                // Create sync log entry
+                $syncLog = \App\Models\SyncLog::create([
+                    'type' => 'sync_organization_domains',
+                    'status' => 'pending',
+                    'user_id' => auth()->id(),
+                    'total_items' => 0,
+                    'processed_items' => 0,
+                    'successful_items' => 0,
+                    'failed_items' => 0,
+                    'metadata' => [
+                        'organization_id' => $organization->id,
+                        'organization_name' => $organization->name,
+                        'domains' => $domainList,
+                    ],
+                ]);
+
+                // Dispatch the job to run in the background
+                \App\Jobs\SyncOrganizationDomainsJob::dispatch(
+                    $syncLog->id,
+                    $organization->id,
+                    $domainList,
+                    $this->syncUsers
+                );
+
+                session()->flash('message', "Organization created successfully. Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
+            } else {
+                session()->flash('message', 'Organization created successfully.');
+            }
+
+            $this->closeCreateModal();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to create organization', [
+                'error' => $e->getMessage(),
+                'name' => $this->name
+            ]);
+            session()->flash('error', 'Failed to create organization: ' . $e->getMessage());
+        }
     }
 
     public function openEditModal($id)
     {
-        $organization = Organization::findOrFail($id);
+        $organization = Organization::with('domains')->findOrFail($id);
         $this->organizationToEdit = $organization;
         $this->name = $organization->name;
         $this->description = $organization->description;
         $this->is_active = $organization->is_active;
+
+        // Load current domains as comma-separated string
+        $this->domains = $organization->domains->pluck('domain')->implode(', ');
+        $this->syncUsers = true; // Default to true
+
         $this->showEditModal = true;
     }
 
@@ -91,7 +142,7 @@ class Index extends Component
     {
         $this->showEditModal = false;
         $this->organizationToEdit = null;
-        $this->reset(['name', 'description', 'is_active']);
+        $this->reset(['name', 'description', 'is_active', 'domains', 'syncUsers']);
         $this->resetValidation();
     }
 
@@ -101,16 +152,60 @@ class Index extends Component
             'name' => 'required|string|max:255|unique:organizations,name,' . $this->organizationToEdit->id,
             'description' => 'nullable|string',
             'is_active' => 'boolean',
+            'domains' => 'nullable|string',
+            'syncUsers' => 'boolean',
         ]);
 
-        $this->organizationToEdit->update([
-            'name' => $this->name,
-            'description' => $this->description,
-            'is_active' => $this->is_active,
-        ]);
+        try {
+            $this->organizationToEdit->update([
+                'name' => $this->name,
+                'description' => $this->description,
+                'is_active' => $this->is_active,
+            ]);
 
-        session()->flash('message', 'Organization updated successfully.');
-        $this->closeEditModal();
+            // Process domains if provided - dispatch background job
+            if (!empty($this->domains)) {
+                $domainList = array_map('trim', explode(',', $this->domains));
+                $domainList = array_filter($domainList); // Remove empty values
+
+                // Create sync log entry
+                $syncLog = \App\Models\SyncLog::create([
+                    'type' => 'sync_organization_domains',
+                    'status' => 'pending',
+                    'user_id' => auth()->id(),
+                    'total_items' => 0,
+                    'processed_items' => 0,
+                    'successful_items' => 0,
+                    'failed_items' => 0,
+                    'metadata' => [
+                        'organization_id' => $this->organizationToEdit->id,
+                        'organization_name' => $this->organizationToEdit->name,
+                        'domains' => $domainList,
+                        'action' => 'update',
+                    ],
+                ]);
+
+                // Dispatch the job to run in the background
+                \App\Jobs\SyncOrganizationDomainsJob::dispatch(
+                    $syncLog->id,
+                    $this->organizationToEdit->id,
+                    $domainList,
+                    $this->syncUsers
+                );
+
+                session()->flash('message', "Organization updated successfully. Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
+            } else {
+                session()->flash('message', 'Organization updated successfully.');
+            }
+
+            $this->closeEditModal();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to update organization', [
+                'error' => $e->getMessage(),
+                'organization_id' => $this->organizationToEdit->id
+            ]);
+            session()->flash('error', 'Failed to update organization: ' . $e->getMessage());
+        }
     }
 
     public function confirmDelete($id)
@@ -128,9 +223,49 @@ class Index extends Component
     public function deleteOrganization()
     {
         if ($this->organizationToDelete) {
-            $this->organizationToDelete->delete();
-            session()->flash('message', 'Organization deleted successfully.');
-            $this->cancelDelete();
+            \Illuminate\Support\Facades\DB::beginTransaction();
+            try {
+                $organizationName = $this->organizationToDelete->name;
+                $organizationId = $this->organizationToDelete->id;
+
+                // Find "Default Organization" for fallback
+                $defaultOrganization = Organization::where('name', 'Default Organization')->first();
+
+                // Only proceed with user migration if this is NOT the Default Organization
+                if ($defaultOrganization && $organizationId !== $defaultOrganization->id) {
+                    // Move all users from this organization to Default Organization
+                    $usersToMove = \App\Models\User::where('organization_id', $organizationId)->get();
+                    $movedCount = 0;
+
+                    foreach ($usersToMove as $user) {
+                        $user->organization_id = $defaultOrganization->id;
+                        $user->save();
+                        $movedCount++;
+                    }
+
+                    if ($movedCount > 0) {
+                        \Illuminate\Support\Facades\Log::info('Users moved to Default Organization after organization deletion', [
+                            'deleted_organization' => $organizationName,
+                            'moved_users' => $movedCount
+                        ]);
+                    }
+                }
+
+                // Delete the organization
+                $this->organizationToDelete->delete();
+
+                \Illuminate\Support\Facades\DB::commit();
+
+                session()->flash('message', "Organization '{$organizationName}' deleted successfully.");
+                $this->cancelDelete();
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\DB::rollBack();
+                \Illuminate\Support\Facades\Log::error('Failed to delete organization', [
+                    'error' => $e->getMessage(),
+                    'organization_id' => $this->organizationToDelete->id
+                ]);
+                session()->flash('error', 'Failed to delete organization: ' . $e->getMessage());
+            }
         }
     }
 

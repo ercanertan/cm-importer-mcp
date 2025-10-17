@@ -18,7 +18,7 @@ class DomainController extends Controller
     {
         $domains = Domain::with('organizations')
             ->withCount('users')
-            ->orderBy('user_count', 'desc')
+            ->orderBy('users_count', 'desc')
             ->paginate(50);
 
         return view('admin.domains.index', compact('domains'));
@@ -37,8 +37,7 @@ class DomainController extends Controller
         DB::beginTransaction();
         try {
             $domain = Domain::create([
-                'domain' => strtolower(trim($request->domain)),
-                'user_count' => 0
+                'domain' => strtolower(trim($request->domain))
             ]);
 
             // If organization is provided, associate it

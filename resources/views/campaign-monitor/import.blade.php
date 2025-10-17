@@ -37,7 +37,7 @@
             <!-- Upload Form -->
             @if(!isset($uploadedFile))
                 <div class="bg-white shadow rounded-lg p-6 mb-8">
-                    <h2 class="text-xl font-semibold mb-4">Upload CSV File</h2>
+                    <h2 class="text-xl font-semibold mb-4 text-gray-700">Upload CSV File</h2>
 
                     <form action="{{ route('campaign-monitor.upload') }}" method="POST" enctype="multipart/form-data">
                         @csrf

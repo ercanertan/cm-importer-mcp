@@ -17,6 +17,7 @@ class CampaignMonitorImportService
     protected $config;
     protected $log;
     protected $batchCounter = 0;
+    protected $defaultOrganization = null;
 
     public function __construct()
     {
@@ -236,6 +237,16 @@ class CampaignMonitorImportService
             $pdo = DB::getPdo();
             $pdo->beginTransaction();
 
+            // PERFORMANCE OPTIMIZATION: Pre-process domains and organization ONCE for entire batch
+            // This reduces queries from N to 1 (where N = batch size, typically 500)
+
+            // Extract and bulk create/find all unique domains WITH their organizations
+            $domainStrings = $this->extractUniqueDomainStrings($batch);
+            $domainMap = $this->bulkFindOrCreateDomainsWithOrganizations($domainStrings);
+
+            // Get default organization (cached) - only used as fallback
+            $defaultOrganization = $this->getOrCreateDefaultOrganization();
+
             // Separate new users from existing ones
             $emails = array_column($batch, 'email');
             $existingUsers = $this->getExistingUsersByEmail($emails);
@@ -243,14 +254,39 @@ class CampaignMonitorImportService
             $newUsers = [];
             $updateUsers = [];
             $customFieldData = [];
+            $processedDomainIds = [];
+            $userOrganizationMap = []; // Track email => organization_id for pivot table sync
 
             foreach ($batch as $rowData) {
                 $email = $rowData['email'];
 
+                // Get domain from pre-loaded map
+                $domainName = Domain::extractFromEmail($email);
+                $domain = isset($domainMap[$domainName]) ? $domainMap[$domainName] : null;
+
+                // Determine which organization to use
+                // If domain has specific organizations, use the first one
+                // Otherwise, use Default Organization
+                $organization = $defaultOrganization;
+                if ($domain && isset($domain['organizations']) && !empty($domain['organizations'])) {
+                    // Use the first organization associated with this domain
+                    $organization = (object)$domain['organizations'][0];
+                }
+
+                // Track domain IDs for bulk sync later (only if using default org)
+                if ($domain && isset($domain['id']) && $organization === $defaultOrganization) {
+                    $processedDomainIds[$domain['id']] = true;
+                }
+
+                // Track user-organization mapping for pivot table sync
+                if ($organization && isset($organization->id)) {
+                    $userOrganizationMap[$email] = $organization->id;
+                }
+
                 if (isset($existingUsers[$email])) {
-                    $updateUsers[] = $this->prepareUserUpdateData($rowData, $existingUsers[$email]);
+                    $updateUsers[] = $this->prepareUserUpdateData($rowData, $existingUsers[$email], $domain, $organization);
                 } else {
-                    $newUsers[] = $this->prepareUserInsertData($rowData);
+                    $newUsers[] = $this->prepareUserInsertData($rowData, $domain, $organization);
                 }
 
                 // Collect custom field data
@@ -272,6 +308,17 @@ class CampaignMonitorImportService
             // Process custom fields
             if (!empty($customFieldData)) {
                 $this->bulkInsertCustomFields($pdo, $customFieldData);
+            }
+
+            // Bulk sync domain-organization relationships
+            // Note: processedDomainIds only contains domains that need to be synced to Default Organization
+            if (!empty($processedDomainIds) && $defaultOrganization) {
+                $this->bulkSyncDomainOrganizations(array_keys($processedDomainIds), $defaultOrganization->id);
+            }
+
+            // Bulk sync user-organization relationships (many-to-many pivot table)
+            if (!empty($userOrganizationMap)) {
+                $this->bulkSyncUserOrganizations($userOrganizationMap);
             }
 
             $pdo->commit();
@@ -1043,7 +1090,7 @@ class CampaignMonitorImportService
             ->toArray();
     }
 
-    protected function prepareUserInsertData($rowData)
+    protected function prepareUserInsertData($rowData, $domain = null, $organization = null)
     {
         $fullname = $this->buildFullName($rowData);
 
@@ -1054,20 +1101,26 @@ class CampaignMonitorImportService
             $status = $this->determineStatus();
         }
 
-        // Extract domain and get/create organization
-        $domain = Domain::findOrCreateByEmail($rowData['email']);
-        $organization = $this->getOrCreateDefaultOrganization();
+        // Use pre-loaded domain and organization (passed as parameters)
+        // This eliminates N database queries per batch (huge performance improvement)
+        $domainId = null;
+        $organizationId = null;
 
-        // Associate domain with organization if not already associated
-        if ($domain && $organization) {
-            $organization->domains()->syncWithoutDetaching([$domain->id]);
+        if (is_array($domain) && isset($domain['id'])) {
+            $domainId = $domain['id'];
+        } elseif (is_object($domain) && isset($domain->id)) {
+            $domainId = $domain->id;
+        }
+
+        if (is_object($organization) && isset($organization->id)) {
+            $organizationId = $organization->id;
         }
 
         return [
             'email' => $rowData['email'],
             'fullname' => $fullname ?: '',
-            'organization_id' => $organization?->id,
-            'domain_id' => $domain?->id,
+            'organization_id' => $organizationId,
+            'domain_id' => $domainId,
             'cm_status' => $status,
             'cm_subscribed_at' => isset($rowData['cm_subscribed_at']) && !empty($rowData['cm_subscribed_at'])
                 ? $this->parseDate($rowData['cm_subscribed_at'])
@@ -1086,7 +1139,7 @@ class CampaignMonitorImportService
         ];
     }
 
-    protected function prepareUserUpdateData($rowData, $existingUser)
+    protected function prepareUserUpdateData($rowData, $existingUser, $domain = null, $organization = null)
     {
         $updates = [];
         $newName = $this->buildFullName($rowData);
@@ -1096,21 +1149,27 @@ class CampaignMonitorImportService
         }
 
         // Update organization_id and domain_id if they're null
+        // Use pre-loaded domain and organization (passed as parameters)
         if (empty($existingUser['organization_id']) || empty($existingUser['domain_id'])) {
-            $domain = Domain::findOrCreateByEmail($rowData['email']);
-            $organization = $this->getOrCreateDefaultOrganization();
+            $domainId = null;
+            $organizationId = null;
 
-            // Associate domain with organization if not already associated
-            if ($domain && $organization) {
-                $organization->domains()->syncWithoutDetaching([$domain->id]);
+            if (is_array($domain) && isset($domain['id'])) {
+                $domainId = $domain['id'];
+            } elseif (is_object($domain) && isset($domain->id)) {
+                $domainId = $domain->id;
             }
 
-            if (empty($existingUser['organization_id']) && $organization) {
-                $updates['organization_id'] = $organization->id;
+            if (is_object($organization) && isset($organization->id)) {
+                $organizationId = $organization->id;
             }
 
-            if (empty($existingUser['domain_id']) && $domain) {
-                $updates['domain_id'] = $domain->id;
+            if (empty($existingUser['organization_id']) && $organizationId) {
+                $updates['organization_id'] = $organizationId;
+            }
+
+            if (empty($existingUser['domain_id']) && $domainId) {
+                $updates['domain_id'] = $domainId;
             }
         }
 
@@ -1383,12 +1442,247 @@ class CampaignMonitorImportService
      */
     protected function getOrCreateDefaultOrganization()
     {
-        return Organization::firstOrCreate(
-            ['name' => 'Default Organization'],
-            [
-                'description' => 'Default organization for imported users',
-                'is_active' => true
-            ]
-        );
+        // Cache the default organization to avoid repeated queries
+        if ($this->defaultOrganization === null) {
+            $this->defaultOrganization = Organization::firstOrCreate(
+                ['name' => 'Default Organization'],
+                [
+                    'description' => 'Default organization for imported users',
+                    'is_active' => true
+                ]
+            );
+        }
+
+        return $this->defaultOrganization;
+    }
+
+    /**
+     * Extract unique domain strings from a batch of row data
+     * Returns array of unique domain names
+     */
+    protected function extractUniqueDomainStrings($batch)
+    {
+        $domainStrings = [];
+
+        foreach ($batch as $rowData) {
+            $email = $rowData['email'] ?? null;
+            if (!$email) continue;
+
+            $domainName = Domain::extractFromEmail($email);
+            if ($domainName) {
+                $domainStrings[$domainName] = true; // Use as key to ensure uniqueness
+            }
+        }
+
+        return array_keys($domainStrings);
+    }
+
+    /**
+     * Bulk find or create domains WITH their organizations
+     * Returns a map of domain_name => Domain model with organizations
+     */
+    protected function bulkFindOrCreateDomainsWithOrganizations($domainStrings)
+    {
+        if (empty($domainStrings)) {
+            return [];
+        }
+
+        // Find existing domains WITH their organizations
+        $existingDomains = Domain::whereIn('domain', $domainStrings)
+            ->with('organizations')
+            ->get()
+            ->keyBy('domain');
+
+        // Identify missing domains
+        $missingDomains = array_diff($domainStrings, $existingDomains->keys()->toArray());
+
+        // Bulk create missing domains
+        if (!empty($missingDomains)) {
+            $now = now()->format('Y-m-d H:i:s');
+            $insertData = [];
+
+            foreach ($missingDomains as $domainName) {
+                $insertData[] = [
+                    'domain' => $domainName,
+                    'created_at' => $now,
+                    'updated_at' => $now
+                ];
+            }
+
+            // Use DB insert for bulk creation
+            DB::table('domains')->insert($insertData);
+
+            // Fetch the newly created domains with organizations
+            $newDomains = Domain::whereIn('domain', $missingDomains)->with('organizations')->get();
+
+            // Merge with existing domains
+            foreach ($newDomains as $domain) {
+                $existingDomains[$domain->domain] = $domain;
+            }
+        }
+
+        return $existingDomains->toArray();
+    }
+
+    /**
+     * Bulk find or create domains (without organizations)
+     * Returns a map of domain_name => Domain model
+     */
+    protected function bulkFindOrCreateDomains($domainStrings)
+    {
+        if (empty($domainStrings)) {
+            return [];
+        }
+
+        // Find existing domains
+        $existingDomains = Domain::whereIn('domain', $domainStrings)
+            ->get()
+            ->keyBy('domain');
+
+        // Identify missing domains
+        $missingDomains = array_diff($domainStrings, $existingDomains->keys()->toArray());
+
+        // Bulk create missing domains
+        if (!empty($missingDomains)) {
+            $now = now()->format('Y-m-d H:i:s');
+            $insertData = [];
+
+            foreach ($missingDomains as $domainName) {
+                $insertData[] = [
+                    'domain' => $domainName,
+                    'created_at' => $now,
+                    'updated_at' => $now
+                ];
+            }
+
+            // Use DB insert for bulk creation
+            DB::table('domains')->insert($insertData);
+
+            // Fetch the newly created domains
+            $newDomains = Domain::whereIn('domain', $missingDomains)->get();
+
+            // Merge with existing domains
+            foreach ($newDomains as $domain) {
+                $existingDomains[$domain->domain] = $domain;
+            }
+        }
+
+        return $existingDomains->toArray();
+    }
+
+    /**
+     * Bulk sync domain-organization relationships
+     * Associates all provided domains with the organization
+     */
+    protected function bulkSyncDomainOrganizations($domainIds, $organizationId)
+    {
+        if (empty($domainIds) || !$organizationId) {
+            return;
+        }
+
+        $now = now()->format('Y-m-d H:i:s');
+        $pivotData = [];
+
+        // Get existing relationships
+        $existingRelations = DB::table('organization_domain')
+            ->where('organization_id', $organizationId)
+            ->whereIn('domain_id', $domainIds)
+            ->pluck('domain_id')
+            ->toArray();
+
+        // Prepare insert data for missing relationships
+        $missingDomainIds = array_diff($domainIds, $existingRelations);
+
+        foreach ($missingDomainIds as $domainId) {
+            $pivotData[] = [
+                'organization_id' => $organizationId,
+                'domain_id' => $domainId,
+                'created_at' => $now,
+                'updated_at' => $now
+            ];
+        }
+
+        if (!empty($pivotData)) {
+            DB::table('organization_domain')->insert($pivotData);
+        }
+    }
+
+    /**
+     * Bulk sync user-organization relationships (many-to-many pivot table)
+     * Associates users with their organizations based on domain
+     *
+     * @param array $userOrganizationMap Array of email => organization_id mappings
+     */
+    protected function bulkSyncUserOrganizations($userOrganizationMap)
+    {
+        if (empty($userOrganizationMap)) {
+            return;
+        }
+
+        // Get user IDs from emails
+        $emails = array_keys($userOrganizationMap);
+        $userIdMap = User::whereIn('email', $emails)
+            ->pluck('id', 'email')
+            ->toArray();
+
+        if (empty($userIdMap)) {
+            return;
+        }
+
+        $now = now()->format('Y-m-d H:i:s');
+        $pivotData = [];
+
+        // Prepare user_id => organization_id pairs
+        $userOrgPairs = [];
+        foreach ($userOrganizationMap as $email => $organizationId) {
+            if (isset($userIdMap[$email])) {
+                $userId = $userIdMap[$email];
+                $userOrgPairs[] = [
+                    'user_id' => $userId,
+                    'organization_id' => $organizationId
+                ];
+            }
+        }
+
+        if (empty($userOrgPairs)) {
+            return;
+        }
+
+        // Get existing relationships to avoid duplicates
+        $userIds = array_column($userOrgPairs, 'user_id');
+        $organizationIds = array_unique(array_column($userOrgPairs, 'organization_id'));
+
+        $existingRelations = DB::table('organization_user')
+            ->whereIn('user_id', $userIds)
+            ->whereIn('organization_id', $organizationIds)
+            ->get()
+            ->mapWithKeys(function($item) {
+                return ["{$item->user_id}_{$item->organization_id}" => true];
+            })
+            ->toArray();
+
+        // Prepare insert data for missing relationships only
+        foreach ($userOrgPairs as $pair) {
+            $key = "{$pair['user_id']}_{$pair['organization_id']}";
+
+            // Only insert if relationship doesn't already exist
+            if (!isset($existingRelations[$key])) {
+                $pivotData[] = [
+                    'user_id' => $pair['user_id'],
+                    'organization_id' => $pair['organization_id'],
+                    'created_at' => $now,
+                    'updated_at' => $now
+                ];
+            }
+        }
+
+        // Bulk insert missing relationships
+        if (!empty($pivotData)) {
+            // Chunk the inserts to avoid hitting MySQL limits
+            $chunks = array_chunk($pivotData, 500);
+            foreach ($chunks as $chunk) {
+                DB::table('organization_user')->insert($chunk);
+            }
+        }
     }
 }
