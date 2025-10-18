@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CmCustomFieldValue extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'user_id',
         'cm_custom_field_id',
@@ -45,7 +47,12 @@ class CmCustomFieldValue extends Model
         switch ($field->data_type) {
             case 'date':
                 try {
-                    return date('Y-m-d', strtotime($this->value));
+                    $timestamp = strtotime($this->value);
+                    // strtotime returns false for invalid dates, or -1/false for completely invalid strings
+                    if ($timestamp === false || $timestamp === -1 || $timestamp < 0) {
+                        return $this->value;
+                    }
+                    return date('Y-m-d', $timestamp);
                 } catch (\Exception $e) {
                     return $this->value;
                 }

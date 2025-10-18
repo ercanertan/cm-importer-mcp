@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CmCustomField extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'field_key',
         'field_name',

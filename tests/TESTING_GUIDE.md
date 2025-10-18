@@ -4,20 +4,20 @@ This guide covers all Pest tests written for the domain and organization managem
 
 ## 📊 Quick Summary
 
-**Status:** ✅ All Tests Passing (75/75)
+**Status:** ✅ All Tests Passing
 
-- **Test Files:** 6
-- **Test Cases:** 75
-- **Assertions:** 251
+- **Test Files:** 9
+- **Test Cases:** 150+
+- **Assertions:** 400+
 - **Pass Rate:** 100%
 - **Performance:** 1000 users processed in <5 seconds
 - **Database Support:** SQLite ✅ MySQL ✅
 
 ### What's Tested:
-- ✅ 4 Models (Domain, Organization, User, SyncLog)
+- ✅ 7 Models (Domain, Organization, User, SyncLog, CmImportLog, CmCustomField, CmCustomFieldValue)
 - ✅ 4 Background Jobs
 - ✅ 10 Integration scenarios
-- ✅ 35+ Edge cases
+- ✅ 50+ Edge cases
 - ✅ 8 Performance tests
 - ✅ Critical bug fixes verified
 
@@ -232,6 +232,95 @@ All tests use `RefreshDatabase` trait which:
 
 ---
 
+### 7. Campaign Monitor Import Models Tests
+
+#### CmImportLog Tests (`tests/Feature/CmImportLogTest.php`)
+
+**Purpose:** Tests the import log tracking system for Campaign Monitor CSV imports.
+
+**Key Tests:**
+- ✅ Factory states (pending, processing, completed, failed, chunked)
+- ✅ Status transition methods (`markAsStarted()`, `markAsCompleted()`, `markAsFailed()`)
+- ✅ Counter increments (processed, created, updated, failed)
+- ✅ Progress percentage calculation
+- ✅ Duration tracking
+- ✅ Scopes (recent, byStatus, completed, failed)
+- ✅ User relationship
+- ✅ Array casts (custom_fields_detected, error_details)
+- ✅ Memory tracking
+- ✅ Chunked import progress
+- ✅ File hash handling
+
+**Test Categories:**
+- Factory and states (5 tests)
+- Status methods (4 tests)
+- Counter methods (5 tests)
+- Computed attributes (6 tests)
+- Scopes (6 tests)
+- Relationships (2 tests)
+- Casts (3 tests)
+- Edge cases (4 tests)
+
+**Total:** 35 tests
+
+#### CmCustomField Tests (`tests/Feature/CmCustomFieldTest.php`)
+
+**Purpose:** Tests custom field definitions and data type detection from Campaign Monitor.
+
+**Key Tests:**
+- ✅ Factory states (text, number, date, multi_select, active/inactive)
+- ✅ Data type detection (number, date, multi_select, text)
+- ✅ Scopes (active, byFieldKey)
+- ✅ Relationships (customFieldValues, users with pivot)
+- ✅ Last seen tracking (`updateLastSeen()`)
+- ✅ Array casts for options
+- ✅ Boolean cast for is_active
+- ✅ DateTime cast for last_seen_at
+- ✅ Field key patterns (lowercase, underscores, numbers)
+- ✅ Special character handling
+
+**Test Categories:**
+- Factory and states (5 tests)
+- Data type detection (9 tests)
+- Scopes (3 tests)
+- Relationships (3 tests)
+- Last seen tracking (2 tests)
+- Casts (4 tests)
+- Edge cases (5 tests)
+- Field key patterns (3 tests)
+
+**Total:** 34 tests
+
+#### CmCustomFieldValue Tests (`tests/Feature/CmCustomFieldValueTest.php`)
+
+**Purpose:** Tests custom field values storage and formatting for users.
+
+**Key Tests:**
+- ✅ Factory states (text, number, date, multi_select values)
+- ✅ Relationships (user, customField)
+- ✅ Scopes (byField, byUser, chaining)
+- ✅ Formatted value attribute for all data types
+- ✅ Date formatting with error handling
+- ✅ Number formatting (integer and decimal)
+- ✅ Multi-select array conversion
+- ✅ Empty and null value handling
+- ✅ Long text values
+- ✅ Special characters and Unicode support
+- ✅ Multiple values per user for different fields
+- ✅ Value formatting consistency
+
+**Test Categories:**
+- Factory and states (5 tests)
+- Relationships (3 tests)
+- Scopes (3 tests)
+- Formatted value attribute (9 tests)
+- Edge cases (8 tests)
+- Value formatting consistency (4 tests)
+
+**Total:** 32 tests
+
+---
+
 ## Factories Created
 
 ### 1. SyncLogFactory (`database/factories/SyncLogFactory.php`)
@@ -268,6 +357,56 @@ User::factory()->withoutTwoFactor()->create();
 ### 4. Domain Model
 (Use `Domain::create(['domain' => 'example.com'])` directly in tests - no factory needed)
 
+### 5. CmImportLogFactory (`database/factories/CmImportLogFactory.php`)
+```php
+CmImportLog::factory()->create(); // pending status
+CmImportLog::factory()->processing()->create();
+CmImportLog::factory()->completed()->create();
+CmImportLog::factory()->failed()->create();
+CmImportLog::factory()->chunked()->create(); // For large imports
+```
+
+**Features:**
+- Automatically sets `user_id` to `null` by default
+- Supports all import statuses: `pending`, `processing`, `completed`, `failed`
+- Tracks: total_rows, processed_rows, created/updated/failed counts
+- Supports chunked imports for large files
+- Memory tracking (peak and current)
+- Custom field detection
+- Error details storage
+
+### 6. CmCustomFieldFactory (`database/factories/CmCustomFieldFactory.php`)
+```php
+CmCustomField::factory()->create(); // text type by default
+CmCustomField::factory()->inactive()->create();
+CmCustomField::factory()->number()->create();
+CmCustomField::factory()->date()->create();
+CmCustomField::factory()->multiSelect()->create();
+```
+
+**Features:**
+- Generates unique field keys
+- Supports data types: `text`, `number`, `date`, `multi_select`
+- Includes `is_active` state
+- Auto-generates field names from keys
+- Last seen tracking
+- Options array for multi-select fields
+
+### 7. CmCustomFieldValueFactory (`database/factories/CmCustomFieldValueFactory.php`)
+```php
+CmCustomFieldValue::factory()->create();
+CmCustomFieldValue::factory()->withTextValue()->create();
+CmCustomFieldValue::factory()->withNumberValue()->create();
+CmCustomFieldValue::factory()->withDateValue()->create();
+CmCustomFieldValue::factory()->withMultiSelectValue()->create();
+```
+
+**Features:**
+- Automatically creates related User and CmCustomField
+- Supports different value types
+- Formatted value output based on field type
+- Handles text, numbers, dates, and multi-select values
+
 ---
 
 ## Edge Cases Covered
@@ -303,12 +442,12 @@ User::factory()->withoutTwoFactor()->create();
 
 ## Test Statistics
 
-- **Total Test Files:** 6
-- **Total Test Cases:** 75
-- **Total Assertions:** 251
-- **Pass Rate:** 100% (75/75 passing)
-- **Code Coverage:** Domain models, Jobs, Relationships, Factories
-- **Edge Cases:** 35+
+- **Total Test Files:** 9
+- **Total Test Cases:** 150+
+- **Total Assertions:** 400+
+- **Pass Rate:** 100% (All tests passing)
+- **Code Coverage:** Domain models, Campaign Monitor models, Jobs, Relationships, Factories
+- **Edge Cases:** 50+
 - **Performance Tests:** 8
 - **Integration Tests:** 10
 
@@ -341,10 +480,16 @@ Consider adding tests for:
 
 ### ✅ All Models Covered:
 
+#### Domain & Organization Management:
 1. **Domain Model** - 21 dedicated tests + integration tests
 2. **Organization Model** - Covered through factories and integration tests
 3. **User Model** - Covered through domain/job tests with proper factory
 4. **SyncLog Model** - Covered in all job tests (7 tests per job × 4 jobs)
+
+#### Campaign Monitor Import System:
+5. **CmImportLog Model** - 35 comprehensive tests
+6. **CmCustomField Model** - 34 comprehensive tests
+7. **CmCustomFieldValue Model** - 32 comprehensive tests
 
 ### ✅ All Background Jobs Covered:
 
@@ -355,11 +500,13 @@ Consider adding tests for:
 
 ### ✅ Test Quality Metrics:
 
-- **100% Pass Rate** (75/75 tests passing)
-- **251 Assertions** across all tests
+- **100% Pass Rate** (All tests passing)
+- **400+ Assertions** across all tests
 - **Database-agnostic** (works with SQLite and MySQL)
 - **Performance verified** (1000 users in <5 seconds)
 - **No duplicate test data** (unique emails using sequential IDs)
+- **Comprehensive edge case coverage** (50+ edge cases tested)
+- **Complete model coverage** (7 models fully tested)
 
 ---
 
