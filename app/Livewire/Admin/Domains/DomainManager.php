@@ -8,7 +8,7 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use Illuminate\Support\Facades\Log;
 
-class Index extends Component
+class DomainManager extends Component
 {
     use WithPagination;
 
@@ -93,7 +93,7 @@ class Index extends Component
             ->orderBy('name')
             ->get();
 
-        return view('livewire.admin.domains.index', [
+        return view('livewire.admin.domains.domain-manager', [
             'domains' => $domains,
             'organizations' => $organizations
         ])->layout('components.layouts.app', ['title' => 'Domains']);

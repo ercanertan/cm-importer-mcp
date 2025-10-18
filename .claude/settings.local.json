@@ -18,7 +18,8 @@
       "Read(//Users/ee/Library/**)",
       "Bash(php:*)",
       "Bash(curl:*)",
-      "mcp__laravel-boost__get-absolute-url"
+      "mcp__laravel-boost__get-absolute-url",
+      "Bash(git mv:*)"
     ],
     "deny": [],
     "ask": []

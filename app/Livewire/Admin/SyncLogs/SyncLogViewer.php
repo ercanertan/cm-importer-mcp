@@ -6,7 +6,7 @@ use App\Models\SyncLog;
 use Livewire\Component;
 use Livewire\WithPagination;
 
-class Index extends Component
+class SyncLogViewer extends Component
 {
     use WithPagination;
 
@@ -19,7 +19,7 @@ class Index extends Component
             ->orderBy('created_at', 'desc')
             ->paginate(20);
 
-        return view('livewire.admin.sync-logs.index', [
+        return view('livewire.admin.sync-logs.sync-log-viewer', [
             'syncLogs' => $syncLogs
         ])->layout('components.layouts.app', ['title' => 'Sync Logs']);
     }

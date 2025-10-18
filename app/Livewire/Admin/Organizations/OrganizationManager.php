@@ -6,7 +6,7 @@ use App\Models\Organization;
 use Livewire\Component;
 use Livewire\WithPagination;
 
-class Index extends Component
+class OrganizationManager extends Component
 {
     use WithPagination;
 
@@ -52,7 +52,7 @@ class Index extends Component
             ->orderBy('name')
             ->paginate(15);
 
-        return view('livewire.admin.organizations.index', [
+        return view('livewire.admin.organizations.organization-manager', [
             'organizations' => $organizations
         ])->layout('components.layouts.app', ['title' => 'Organizations']);
     }

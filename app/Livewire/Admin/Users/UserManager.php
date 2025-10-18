@@ -8,7 +8,7 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use Illuminate\Support\Facades\DB;
 
-class Index extends Component
+class UserManager extends Component
 {
     use WithPagination;
 
@@ -42,7 +42,7 @@ class Index extends Component
             ->orderBy('name')
             ->get();
 
-        return view('livewire.admin.users.index', [
+        return view('livewire.admin.users.user-manager', [
             'users' => $users,
             'organizations' => $organizations
         ])->layout('components.layouts.app', ['title' => 'Users']);

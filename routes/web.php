@@ -32,20 +32,20 @@ Route::middleware(['auth'])->group(function () {
         ->name('two-factor.show');
 
     // Admin Organization Management
-    Route::get('/admin/organizations', \App\Livewire\Admin\Organizations\Index::class)
+    Route::get('/admin/organizations', \App\Livewire\Admin\Organizations\OrganizationManager::class)
         ->name('admin.organizations.index');
 
     // Admin Domain Management
-    Route::get('/admin/domains', \App\Livewire\Admin\Domains\Index::class)
+    Route::get('/admin/domains', \App\Livewire\Admin\Domains\DomainManager::class)
         ->name('admin.domains.index');
 
-    // Admin Sync Logs
-    Route::get('/admin/sync-logs', \App\Livewire\Admin\SyncLogs\Index::class)
-        ->name('admin.sync-logs.index');
-
     // Admin User Management
-    Route::get('/admin/users', \App\Livewire\Admin\Users\Index::class)
+    Route::get('/admin/users', \App\Livewire\Admin\Users\UserManager::class)
         ->name('admin.users.index');
+
+    // Admin Sync Logs Viewer
+    Route::get('/admin/sync-logs', \App\Livewire\Admin\SyncLogs\SyncLogViewer::class)
+        ->name('admin.sync-logs.index');
 });
 
 // Campaign Monitor Import Routes
