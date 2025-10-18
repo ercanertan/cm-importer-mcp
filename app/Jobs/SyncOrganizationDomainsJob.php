@@ -99,6 +99,11 @@ class SyncOrganizationDomainsJob implements ShouldQueue
                 $domainName = strtolower(trim($domainName));
                 $domain = \App\Models\Domain::firstOrCreate(['domain' => $domainName]);
                 $domainIds[] = $domain->id;
+
+                // If assigning to a non-default organization, remove default organization from each domain
+                if ($defaultOrganization && $organization->id !== $defaultOrganization->id) {
+                    $domain->organizations()->detach($defaultOrganization->id);
+                }
             }
 
             // STEP 2: Sync organization to ONLY these domains (removes any not in the list)
@@ -148,8 +153,8 @@ class SyncOrganizationDomainsJob implements ShouldQueue
                     }
                     // Note: No need to sync domain organizations here - already done in STEP 2!
 
-                    // Sync users from other organizations if enabled
-                    if ($this->syncUsers && $domain->user_count > 0) {
+                    // Sync users from domain if enabled
+                    if ($this->syncUsers) {
                         $synced = $domain->assignUsersToOrganization($organization);
                         $totalUsersAssigned += $synced;
                     }

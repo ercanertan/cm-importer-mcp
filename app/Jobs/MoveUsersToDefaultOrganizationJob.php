@@ -72,6 +72,12 @@ class MoveUsersToDefaultOrganizationJob implements ShouldQueue
                 'default_organization_id' => $this->defaultOrganizationId
             ]);
 
+            // Validate that the default organization exists
+            $defaultOrganization = Organization::find($this->defaultOrganizationId);
+            if (!$defaultOrganization) {
+                throw new \Exception('Default organization not found');
+            }
+
             // Count users to move
             $totalUsers = DB::table('users')
                 ->where('organization_id', $this->organizationId)

@@ -23,12 +23,22 @@ return new class extends Migration
         });
 
         // Migrate existing data from users.organization_id to the pivot table
-        DB::statement('
-            INSERT INTO organization_user (user_id, organization_id, created_at, updated_at)
-            SELECT id, organization_id, NOW(), NOW()
-            FROM users
-            WHERE organization_id IS NOT NULL
-        ');
+        $timestamp = now();
+        DB::table('users')
+            ->whereNotNull('organization_id')
+            ->orderBy('id')
+            ->chunk(500, function ($users) use ($timestamp) {
+                $pivotData = [];
+                foreach ($users as $user) {
+                    $pivotData[] = [
+                        'user_id' => $user->id,
+                        'organization_id' => $user->organization_id,
+                        'created_at' => $timestamp,
+                        'updated_at' => $timestamp,
+                    ];
+                }
+                DB::table('organization_user')->insert($pivotData);
+            });
     }
 
     /**
