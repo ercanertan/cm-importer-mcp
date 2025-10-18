@@ -2,7 +2,10 @@
 
 namespace App\Observers;
 
+use App\Jobs\SyncSingleDomainJob;
 use App\Models\Domain;
+use App\Models\SyncLog;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DomainObserver
@@ -13,24 +16,40 @@ class DomainObserver
      */
     public function created(Domain $domain): void
     {
-        // Defer the assignment to avoid blocking the creation
+        // Dispatch proper background job instead of afterResponse
         dispatch(function () use ($domain) {
             try {
                 // Refresh the domain to get latest data including any organizations
                 $domain->refresh();
 
-                // If domain has organizations, assign users
+                // If domain has organizations, dispatch background job to sync users
                 if ($domain->organizations()->exists()) {
-                    $result = $domain->assignUsersFromDomain();
+                    // Create sync log entry
+                    $syncLog = SyncLog::create([
+                        'type' => 'sync_single_domain',
+                        'status' => 'pending',
+                        'user_id' => null, // System-triggered
+                        'total_items' => 0,
+                        'processed_items' => 0,
+                        'successful_items' => 0,
+                        'failed_items' => 0,
+                        'metadata' => [
+                            'domain_id' => $domain->id,
+                            'domain_name' => $domain->domain,
+                            'trigger' => 'domain_created_observer',
+                        ],
+                    ]);
 
-                    Log::info('Domain created - users automatically assigned', [
+                    // Dispatch proper queue job
+                    SyncSingleDomainJob::dispatch($syncLog->id, $domain->id);
+
+                    Log::info('Domain created - sync job dispatched', [
                         'domain' => $domain->domain,
-                        'assigned_count' => $result['assigned_count'],
-                        'total_users' => $result['total_users']
+                        'sync_log_id' => $syncLog->id
                     ]);
                 }
             } catch (\Exception $e) {
-                Log::error('Failed to auto-assign users to new domain', [
+                Log::error('Failed to dispatch sync job for new domain', [
                     'domain' => $domain->domain,
                     'error' => $e->getMessage()
                 ]);
@@ -43,19 +62,35 @@ class DomainObserver
      */
     public function updated(Domain $domain): void
     {
-        // If domain name changed, reassign users
+        // If domain name changed, dispatch background job to reassign users
         if ($domain->wasChanged('domain')) {
             dispatch(function () use ($domain) {
                 try {
-                    $result = $domain->assignUsersFromDomain();
+                    // Create sync log entry
+                    $syncLog = SyncLog::create([
+                        'type' => 'sync_single_domain',
+                        'status' => 'pending',
+                        'user_id' => null, // System-triggered
+                        'total_items' => 0,
+                        'processed_items' => 0,
+                        'successful_items' => 0,
+                        'failed_items' => 0,
+                        'metadata' => [
+                            'domain_id' => $domain->id,
+                            'domain_name' => $domain->domain,
+                            'trigger' => 'domain_updated_observer',
+                        ],
+                    ]);
 
-                    Log::info('Domain updated - users reassigned', [
+                    // Dispatch proper queue job
+                    SyncSingleDomainJob::dispatch($syncLog->id, $domain->id);
+
+                    Log::info('Domain updated - sync job dispatched', [
                         'domain' => $domain->domain,
-                        'assigned_count' => $result['assigned_count'],
-                        'total_users' => $result['total_users']
+                        'sync_log_id' => $syncLog->id
                     ]);
                 } catch (\Exception $e) {
-                    Log::error('Failed to reassign users after domain update', [
+                    Log::error('Failed to dispatch sync job after domain update', [
                         'domain' => $domain->domain,
                         'error' => $e->getMessage()
                     ]);
@@ -69,28 +104,29 @@ class DomainObserver
      */
     public function deleted(Domain $domain): void
     {
-        // Find "Default Organization"
+        // Use bulk update instead of looping - MUCH faster!
         $defaultOrganization = \App\Models\Organization::where('name', 'Default Organization')->first();
 
-        // Get all users with this domain
-        $users = \App\Models\User::where('domain_id', $domain->id)->get();
+        // Bulk update: Remove domain_id for all users with this domain
+        DB::table('users')
+            ->where('domain_id', $domain->id)
+            ->update(['domain_id' => null]);
 
-        foreach ($users as $user) {
-            // Remove domain association
-            $user->domain_id = null;
-
-            // Fallback to Default Organization if user has no other organization
-            // or if they were in an organization associated with this domain
-            if ($defaultOrganization && !$user->organization_id) {
-                $user->organization_id = $defaultOrganization->id;
-            }
-
-            $user->save();
+        // Bulk update: Set Default Organization for users without organization_id
+        if ($defaultOrganization) {
+            DB::table('users')
+                ->where('domain_id', $domain->id)
+                ->whereNull('organization_id')
+                ->update(['organization_id' => $defaultOrganization->id]);
         }
 
-        Log::info('Domain deleted - users unlinked and moved to Default Organization', [
+        $affectedCount = DB::table('users')
+            ->where('domain_id', $domain->id)
+            ->count();
+
+        Log::info('Domain deleted - users unlinked via bulk update', [
             'domain' => $domain->domain,
-            'users_count' => $users->count()
+            'users_count' => $affectedCount
         ]);
     }
 
@@ -99,18 +135,34 @@ class DomainObserver
      */
     public function restored(Domain $domain): void
     {
-        // When a domain is restored, reassign users
+        // Dispatch proper background job instead of afterResponse
         dispatch(function () use ($domain) {
             try {
-                $result = $domain->assignUsersFromDomain();
+                // Create sync log entry
+                $syncLog = SyncLog::create([
+                    'type' => 'sync_single_domain',
+                    'status' => 'pending',
+                    'user_id' => null, // System-triggered
+                    'total_items' => 0,
+                    'processed_items' => 0,
+                    'successful_items' => 0,
+                    'failed_items' => 0,
+                    'metadata' => [
+                        'domain_id' => $domain->id,
+                        'domain_name' => $domain->domain,
+                        'trigger' => 'domain_restored_observer',
+                    ],
+                ]);
 
-                Log::info('Domain restored - users reassigned', [
+                // Dispatch proper queue job
+                SyncSingleDomainJob::dispatch($syncLog->id, $domain->id);
+
+                Log::info('Domain restored - sync job dispatched', [
                     'domain' => $domain->domain,
-                    'assigned_count' => $result['assigned_count'],
-                    'total_users' => $result['total_users']
+                    'sync_log_id' => $syncLog->id
                 ]);
             } catch (\Exception $e) {
-                Log::error('Failed to reassign users after domain restore', [
+                Log::error('Failed to dispatch sync job after domain restore', [
                     'domain' => $domain->domain,
                     'error' => $e->getMessage()
                 ]);
@@ -123,22 +175,24 @@ class DomainObserver
      */
     public function forceDeleted(Domain $domain): void
     {
-        // Find "Default Organization"
+        // Use bulk update instead of looping - MUCH faster!
         $defaultOrganization = \App\Models\Organization::where('name', 'Default Organization')->first();
 
-        // Get all users with this domain
-        $users = \App\Models\User::where('domain_id', $domain->id)->get();
+        // Bulk update: Remove domain_id for all users with this domain
+        DB::table('users')
+            ->where('domain_id', $domain->id)
+            ->update(['domain_id' => null]);
 
-        foreach ($users as $user) {
-            // Remove domain association
-            $user->domain_id = null;
-
-            // Fallback to Default Organization if user has no other organization
-            if ($defaultOrganization && !$user->organization_id) {
-                $user->organization_id = $defaultOrganization->id;
-            }
-
-            $user->save();
+        // Bulk update: Set Default Organization for users without organization_id
+        if ($defaultOrganization) {
+            DB::table('users')
+                ->where('domain_id', $domain->id)
+                ->whereNull('organization_id')
+                ->update(['organization_id' => $defaultOrganization->id]);
         }
+
+        Log::info('Domain force deleted - users unlinked via bulk update', [
+            'domain' => $domain->domain
+        ]);
     }
 }

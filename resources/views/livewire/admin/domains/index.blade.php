@@ -1,4 +1,4 @@
-<div class="py-12">
+<div class="py-12" wire:poll.{{ $pollingInterval ?? 'keep-alive' }}ms="checkSyncStatus">
     <div class="bg-white max-w-7xl mx-auto sm:px-6 lg:px-8">
         <div class="overflow-hidden shadow-sm sm:rounded-lg">
             <div class="p-6 text-gray-900">
@@ -30,6 +30,78 @@
                 @if (session()->has('error'))
                     <div class="mb-4 bg-red-100 border border-red-400 text-red-800 px-4 py-3 rounded-lg relative font-medium" role="alert">
                         <span class="block sm:inline">{{ session('error') }}</span>
+                    </div>
+                @endif
+
+                <!-- Sync Status Indicator -->
+                @if($activeSyncLogId && $syncStatus)
+                    <div class="mb-4 bg-blue-50 border-2 border-blue-400 rounded-lg p-4" wire:key="sync-status-{{ $activeSyncLogId }}">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-3">
+                                @if($syncStatus['status'] === 'running')
+                                    <svg class="animate-spin h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                @elseif($syncStatus['status'] === 'completed')
+                                    <svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                @elseif($syncStatus['status'] === 'failed')
+                                    <svg class="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                @endif
+                                <div>
+                                    <h4 class="text-sm font-bold text-gray-900">
+                                        @if($syncStatus['status'] === 'running')
+                                            Syncing Domain Organizations...
+                                        @elseif($syncStatus['status'] === 'completed')
+                                            Sync Completed Successfully
+                                        @elseif($syncStatus['status'] === 'failed')
+                                            Sync Failed
+                                        @endif
+                                    </h4>
+                                    <p class="text-xs text-gray-600">Sync Log ID: #{{ $activeSyncLogId }}</p>
+                                </div>
+                            </div>
+                            <span class="text-lg font-bold text-blue-600">{{ $syncStatus['progress'] }}%</span>
+                        </div>
+
+                        <!-- Progress Bar -->
+                        <div class="w-full bg-gray-200 rounded-full h-3 mb-3 overflow-hidden">
+                            <div class="bg-blue-600 h-3 rounded-full transition-all duration-300 ease-out"
+                                 style="width: {{ $syncStatus['progress'] }}%"></div>
+                        </div>
+
+                        <!-- Stats -->
+                        <div class="grid grid-cols-4 gap-3 text-center">
+                            <div class="bg-white rounded-lg p-2 border border-gray-200">
+                                <p class="text-xs text-gray-600 font-medium">Processed</p>
+                                <p class="text-sm font-bold text-gray-900">{{ $syncStatus['processed'] ?? 0 }}/{{ $syncStatus['total'] ?? 0 }}</p>
+                            </div>
+                            <div class="bg-green-50 rounded-lg p-2 border border-green-200">
+                                <p class="text-xs text-green-700 font-medium">Successful</p>
+                                <p class="text-sm font-bold text-green-900">{{ $syncStatus['successful'] ?? 0 }}</p>
+                            </div>
+                            <div class="bg-red-50 rounded-lg p-2 border border-red-200">
+                                <p class="text-xs text-red-700 font-medium">Failed</p>
+                                <p class="text-sm font-bold text-red-900">{{ $syncStatus['failed'] ?? 0 }}</p>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-2 border border-gray-200">
+                                <p class="text-xs text-gray-600 font-medium">Status</p>
+                                <p class="text-sm font-bold text-gray-900 capitalize">{{ $syncStatus['status'] }}</p>
+                            </div>
+                        </div>
+
+                        @if($syncStatus['status'] === 'running')
+                            <p class="mt-3 text-xs text-gray-600 font-medium">
+                                <svg class="inline w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                                </svg>
+                                Live updates will stop automatically when sync completes to save server resources.
+                            </p>
+                        @endif
                     </div>
                 @endif
 

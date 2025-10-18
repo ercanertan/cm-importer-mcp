@@ -21,6 +21,9 @@ class Index extends Component
     public $showAssociateModal = false;
     public $domainToAssociate = null;
     public $syncingDomain = null;
+    public $activeSyncLogId = null;
+    public $syncStatus = null;
+    public $pollingInterval = null;
 
     // Form fields
     public $domain = '';
@@ -34,6 +37,45 @@ class Index extends Component
     public function updatingSearch()
     {
         $this->resetPage();
+    }
+
+    /**
+     * Check the status of active sync job and stop polling when complete
+     */
+    public function checkSyncStatus()
+    {
+        if (!$this->activeSyncLogId) {
+            $this->pollingInterval = null;
+            return;
+        }
+
+        $syncLog = \App\Models\SyncLog::find($this->activeSyncLogId);
+
+        if (!$syncLog) {
+            $this->activeSyncLogId = null;
+            $this->pollingInterval = null;
+            return;
+        }
+
+        $this->syncStatus = [
+            'status' => $syncLog->status,
+            'progress' => $syncLog->processed_items && $syncLog->total_items
+                ? round(($syncLog->processed_items / $syncLog->total_items) * 100, 1)
+                : 0,
+            'processed' => $syncLog->processed_items ?? 0,
+            'total' => $syncLog->total_items ?? 0,
+            'successful' => $syncLog->successful_items ?? 0,
+            'failed' => $syncLog->failed_items ?? 0,
+        ];
+
+        // Stop polling if job is completed or failed
+        if (in_array($syncLog->status, ['completed', 'failed'])) {
+            $this->pollingInterval = null;
+            $this->activeSyncLogId = null;
+
+            // Refresh the domains list to show updated data
+            $this->dispatch('$refresh');
+        }
     }
 
     public function render()
@@ -82,11 +124,36 @@ class Index extends Component
                 'domain' => strtolower(trim($this->domain))
             ]);
 
-            // If organization is provided, associate it
+            // If organization is provided, dispatch background job to sync users
             if ($this->organization_id) {
-                $organization = Organization::find($this->organization_id);
-                $result = $newDomain->assignUsersToOrganization($organization);
-                session()->flash('message', "Domain created and {$result} users assigned.");
+                // Create sync log entry
+                $syncLog = \App\Models\SyncLog::create([
+                    'type' => 'sync_domain_organizations',
+                    'status' => 'pending',
+                    'user_id' => auth()->id(),
+                    'total_items' => 0,
+                    'processed_items' => 0,
+                    'successful_items' => 0,
+                    'failed_items' => 0,
+                    'metadata' => [
+                        'domain_id' => $newDomain->id,
+                        'domain_name' => $newDomain->domain,
+                        'organization_ids' => [$this->organization_id],
+                    ],
+                ]);
+
+                // Dispatch the job to run in the background
+                \App\Jobs\SyncDomainOrganizationsJob::dispatch(
+                    $syncLog->id,
+                    $newDomain->id,
+                    [$this->organization_id]
+                );
+
+                // Start polling for status updates
+                $this->activeSyncLogId = $syncLog->id;
+                $this->pollingInterval = 2000; // Poll every 2 seconds
+
+                session()->flash('message', "Domain created successfully. User sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
             } else {
                 session()->flash('message', 'Domain created successfully.');
             }
@@ -108,7 +175,7 @@ class Index extends Component
         $this->domain = $domain->domain;
         $this->selectedOrganizations = $domain->organizations->pluck('id')->toArray();
 
-        // Load users associated with this domain, grouped by organization
+        // Load users associated with this domain, grouped by organization (LIMIT 100 for preview)
         $this->domainUsers = \App\Models\User::where('domain_id', $id)
             ->with(['organization', 'organizations'])
             ->orderBy('organization_id')
@@ -117,50 +184,45 @@ class Index extends Component
             ->get()
             ->toArray();
 
-        // Calculate organization statistics for users (many-to-many)
-        $allUsers = \App\Models\User::where('domain_id', $id)
-            ->with('organizations')
-            ->get();
-
-        // Count users per organization across all relationships
-        $orgStats = [];
-        foreach ($allUsers as $user) {
-            // Use many-to-many organizations if available, otherwise fall back to legacy organization
-            $userOrgs = $user->organizations->count() > 0
-                ? $user->organizations
-                : ($user->organization ? collect([$user->organization]) : collect());
-
-            foreach ($userOrgs as $org) {
-                if (!isset($orgStats[$org->id])) {
-                    $orgStats[$org->id] = [
-                        'id' => $org->id,
-                        'name' => $org->name,
-                        'count' => 0,
-                    ];
-                }
-                $orgStats[$org->id]['count']++;
-            }
-        }
-
-        // If no organizations found, check for users with no organization
-        if (empty($orgStats)) {
-            $usersWithoutOrg = $allUsers->filter(function($user) {
-                return $user->organizations->count() === 0 && !$user->organization;
-            })->count();
-
-            if ($usersWithoutOrg > 0) {
-                $orgStats[0] = [
-                    'id' => null,
-                    'name' => 'No Organization',
-                    'count' => $usersWithoutOrg,
+        // OPTIMIZED: Calculate organization statistics using database queries instead of loading all users
+        // This is MUCH faster for domains with 10k+ users
+        $orgStats = \Illuminate\Support\Facades\DB::table('organization_user')
+            ->join('users', 'organization_user.user_id', '=', 'users.id')
+            ->join('organizations', 'organization_user.organization_id', '=', 'organizations.id')
+            ->where('users.domain_id', $id)
+            ->select(
+                'organizations.id',
+                'organizations.name',
+                \Illuminate\Support\Facades\DB::raw('COUNT(DISTINCT users.id) as count')
+            )
+            ->groupBy('organizations.id', 'organizations.name')
+            ->orderByDesc('count')
+            ->get()
+            ->map(function($item) {
+                return [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'count' => (int) $item->count,
                 ];
-            }
+            })
+            ->toArray();
+
+        // Check for users without any organization (fast count query)
+        $usersWithoutOrg = \Illuminate\Support\Facades\DB::table('users')
+            ->leftJoin('organization_user', 'users.id', '=', 'organization_user.user_id')
+            ->where('users.domain_id', $id)
+            ->whereNull('organization_user.user_id')
+            ->count();
+
+        if ($usersWithoutOrg > 0) {
+            $orgStats[] = [
+                'id' => null,
+                'name' => 'No Organization',
+                'count' => $usersWithoutOrg,
+            ];
         }
 
-        $this->userOrganizationStats = collect($orgStats)
-            ->sortByDesc('count')
-            ->values()
-            ->toArray();
+        $this->userOrganizationStats = $orgStats;
 
         $this->showEditModal = true;
     }
@@ -213,6 +275,10 @@ class Index extends Component
                     $orgIds
                 );
 
+                // Start polling for status updates
+                $this->activeSyncLogId = $syncLog->id;
+                $this->pollingInterval = 2000; // Poll every 2 seconds
+
                 session()->flash('message', "Domain updated. Organization sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
             } else {
                 session()->flash('message', 'Domain updated successfully.');
@@ -230,27 +296,45 @@ class Index extends Component
 
     public function syncDomain($id)
     {
-        $this->syncingDomain = $id;
-
         try {
             $domain = Domain::findOrFail($id);
-            $result = $domain->assignUsersFromDomain();
 
-            Log::info('Domain manually synced', [
-                'domain' => $domain->domain,
-                'assigned_count' => $result['assigned_count'],
-                'total_users' => $result['total_users']
+            // Create sync log entry
+            $syncLog = \App\Models\SyncLog::create([
+                'type' => 'sync_single_domain',
+                'status' => 'pending',
+                'user_id' => auth()->id(),
+                'total_items' => 0,
+                'processed_items' => 0,
+                'successful_items' => 0,
+                'failed_items' => 0,
+                'metadata' => [
+                    'domain_id' => $id,
+                    'domain_name' => $domain->domain,
+                ],
             ]);
 
-            session()->flash('message', "Synced successfully. {$result['assigned_count']} users updated out of {$result['total_users']} total.");
+            // Dispatch the job to run in the background
+            \App\Jobs\SyncSingleDomainJob::dispatch($syncLog->id, $id);
+
+            // Start polling for status updates
+            $this->activeSyncLogId = $syncLog->id;
+            $this->pollingInterval = 2000; // Poll every 2 seconds
+
+            Log::info('Sync single domain job dispatched', [
+                'user_id' => auth()->id(),
+                'domain_id' => $id,
+                'domain' => $domain->domain,
+                'sync_log_id' => $syncLog->id
+            ]);
+
+            session()->flash('message', "Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
         } catch (\Exception $e) {
-            Log::error('Failed to sync domain', [
+            Log::error('Failed to dispatch sync domain job', [
                 'domain_id' => $id,
                 'error' => $e->getMessage()
             ]);
-            session()->flash('error', 'Failed to sync domain: ' . $e->getMessage());
-        } finally {
-            $this->syncingDomain = null;
+            session()->flash('error', 'Failed to start domain sync: ' . $e->getMessage());
         }
     }
 
@@ -358,6 +442,10 @@ class Index extends Component
                     $this->domainToAssociate->id,
                     $orgIds
                 );
+
+                // Start polling for status updates
+                $this->activeSyncLogId = $syncLog->id;
+                $this->pollingInterval = 2000; // Poll every 2 seconds
 
                 session()->flash('message', "Organization sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
             } else {

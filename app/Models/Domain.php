@@ -79,63 +79,88 @@ class Domain extends Model
      */
     public function assignUsersFromDomain(): array
     {
-        // Find all users with emails matching this domain
-        $users = \App\Models\User::where('email', 'like', '%@' . $this->domain)
-            ->get();
-
-        $assignedCount = 0;
-        $updatedOrganizations = [];
-
         // Get all organizations associated with this domain
         $domainOrganizations = $this->organizations()->pluck('organizations.id')->toArray();
 
-        foreach ($users as $user) {
-            $updated = false;
+        // BULK UPDATE 1: Set domain_id for all users with this domain email
+        // This is 1000x faster than looping!
+        $updatedCount = \Illuminate\Support\Facades\DB::table('users')
+            ->where('email', 'like', '%@' . $this->domain)
+            ->where(function($query) {
+                $query->whereNull('domain_id')
+                    ->orWhere('domain_id', '!=', $this->id);
+            })
+            ->update([
+                'domain_id' => $this->id,
+                'updated_at' => now()
+            ]);
 
-            // Update user's domain_id if not set or different
-            if ($user->domain_id !== $this->id) {
-                $user->domain_id = $this->id;
-                $user->save();
-                $updated = true;
-            }
+        // Get user IDs for pivot table syncing
+        $userIds = \Illuminate\Support\Facades\DB::table('users')
+            ->where('email', 'like', '%@' . $this->domain)
+            ->pluck('id')
+            ->toArray();
 
-            // Assign user to ALL organizations associated with this domain
-            if (!empty($domainOrganizations)) {
-                // Get current user's organization IDs
-                $currentOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
+        $totalUsers = count($userIds);
 
-                // Find organizations to add (domain orgs that user doesn't have)
-                $orgsToAdd = array_diff($domainOrganizations, $currentOrgIds);
+        // BULK UPDATE 2: Sync organizations to users (pivot table)
+        if (!empty($domainOrganizations) && !empty($userIds)) {
+            // Get existing relationships to avoid duplicates
+            $existingRelations = \Illuminate\Support\Facades\DB::table('organization_user')
+                ->whereIn('user_id', $userIds)
+                ->whereIn('organization_id', $domainOrganizations)
+                ->get()
+                ->mapWithKeys(function($item) {
+                    return ["{$item->user_id}_{$item->organization_id}" => true];
+                })
+                ->toArray();
 
-                if (!empty($orgsToAdd)) {
-                    // Attach new organizations to user
-                    $user->organizations()->attach($orgsToAdd);
-                    $updated = true;
+            // Prepare bulk insert data for missing relationships
+            $now = now()->format('Y-m-d H:i:s');
+            $pivotData = [];
 
-                    $updatedOrganizations = array_unique(array_merge($updatedOrganizations, $orgsToAdd));
+            foreach ($userIds as $userId) {
+                foreach ($domainOrganizations as $orgId) {
+                    $key = "{$userId}_{$orgId}";
+                    if (!isset($existingRelations[$key])) {
+                        $pivotData[] = [
+                            'user_id' => $userId,
+                            'organization_id' => $orgId,
+                            'created_at' => $now,
+                            'updated_at' => $now
+                        ];
+                    }
                 }
+            }
 
-                // Update legacy organization_id field to first organization if not set
-                if (!$user->organization_id && !empty($domainOrganizations)) {
-                    $user->organization_id = $domainOrganizations[0];
-                    $user->save();
+            // Bulk insert missing relationships in chunks
+            if (!empty($pivotData)) {
+                $chunks = array_chunk($pivotData, 500);
+                foreach ($chunks as $chunk) {
+                    \Illuminate\Support\Facades\DB::table('organization_user')->insert($chunk);
                 }
             }
 
-            if ($updated) {
-                $assignedCount++;
-            }
+            // BULK UPDATE 3: Set legacy organization_id field
+            \Illuminate\Support\Facades\DB::table('users')
+                ->where('email', 'like', '%@' . $this->domain)
+                ->whereNull('organization_id')
+                ->update([
+                    'organization_id' => $domainOrganizations[0] ?? null,
+                    'updated_at' => now()
+                ]);
         }
 
         return [
-            'assigned_count' => $assignedCount,
-            'total_users' => $users->count(),
-            'organizations' => $updatedOrganizations
+            'assigned_count' => $updatedCount,
+            'total_users' => $totalUsers,
+            'organizations' => $domainOrganizations
         ];
     }
 
     /**
      * Assign users to a specific organization for this domain (many-to-many)
+     * OPTIMIZED: Uses bulk queries instead of loops
      */
     public function assignUsersToOrganization(Organization $organization): int
     {
@@ -159,40 +184,70 @@ class Domain extends Model
         // Sync the updated organization list for the domain
         $this->organizations()->sync($currentOrgIds);
 
-        // Find all users with this domain
-        $users = \App\Models\User::where('email', 'like', '%@' . $this->domain)
-            ->get();
+        // BULK UPDATE 1: Set domain_id for all users with this domain email
+        $updatedCount = \Illuminate\Support\Facades\DB::table('users')
+            ->where('email', 'like', '%@' . $this->domain)
+            ->where(function($query) {
+                $query->whereNull('domain_id')
+                    ->orWhere('domain_id', '!=', $this->id);
+            })
+            ->update([
+                'domain_id' => $this->id,
+                'updated_at' => now()
+            ]);
 
-        $assignedCount = 0;
+        // Get user IDs for this domain
+        $userIds = \Illuminate\Support\Facades\DB::table('users')
+            ->where('email', 'like', '%@' . $this->domain)
+            ->pluck('id')
+            ->toArray();
 
-        foreach ($users as $user) {
-            $updated = false;
+        // BULK UPDATE 2: Add organization to users (pivot table)
+        if (!empty($userIds)) {
+            // Get existing relationships to avoid duplicates
+            $existingRelations = \Illuminate\Support\Facades\DB::table('organization_user')
+                ->whereIn('user_id', $userIds)
+                ->where('organization_id', $organization->id)
+                ->pluck('user_id')
+                ->toArray();
 
-            // Update domain_id
-            if ($user->domain_id !== $this->id) {
-                $user->domain_id = $this->id;
-                $user->save();
-                $updated = true;
+            // Find users that don't have this organization yet
+            $usersToAdd = array_diff($userIds, $existingRelations);
+
+            // Bulk insert missing relationships
+            if (!empty($usersToAdd)) {
+                $now = now()->format('Y-m-d H:i:s');
+                $pivotData = [];
+
+                foreach ($usersToAdd as $userId) {
+                    $pivotData[] = [
+                        'user_id' => $userId,
+                        'organization_id' => $organization->id,
+                        'created_at' => $now,
+                        'updated_at' => $now
+                    ];
+                }
+
+                // Insert in chunks
+                $chunks = array_chunk($pivotData, 500);
+                foreach ($chunks as $chunk) {
+                    \Illuminate\Support\Facades\DB::table('organization_user')->insert($chunk);
+                }
             }
 
-            // Add organization to user's organizations if not already present
-            $userOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
-            if (!in_array($organization->id, $userOrgIds)) {
-                $user->organizations()->attach($organization->id);
-                $updated = true;
-            }
-
-            // Update legacy organization_id field to this organization
-            if ($user->organization_id !== $organization->id) {
-                $user->organization_id = $organization->id;
-                $user->save();
-            }
-
-            if ($updated) {
-                $assignedCount++;
-            }
+            // BULK UPDATE 3: Set legacy organization_id field
+            \Illuminate\Support\Facades\DB::table('users')
+                ->where('email', 'like', '%@' . $this->domain)
+                ->where(function($query) use ($organization) {
+                    $query->whereNull('organization_id')
+                        ->orWhere('organization_id', '!=', $organization->id);
+                })
+                ->update([
+                    'organization_id' => $organization->id,
+                    'updated_at' => now()
+                ]);
         }
 
-        return $assignedCount;
+        return count($userIds);
     }
 }

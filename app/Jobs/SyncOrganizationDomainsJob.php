@@ -93,26 +93,40 @@ class SyncOrganizationDomainsJob implements ShouldQueue
 
             $defaultOrganization = Organization::where('name', 'Default Organization')->first();
 
+            // STEP 1: Create/find all domains first and collect their IDs
+            $domainIds = [];
+            foreach ($this->domainNames as $domainName) {
+                $domainName = strtolower(trim($domainName));
+                $domain = \App\Models\Domain::firstOrCreate(['domain' => $domainName]);
+                $domainIds[] = $domain->id;
+            }
+
+            // STEP 2: Sync organization to ONLY these domains (removes any not in the list)
+            // This is the key fix - it ensures removed domains are detached
+            $organization->domains()->sync($domainIds);
+
+            Log::info('Organization domains synced', [
+                'sync_log_id' => $syncLog->id,
+                'organization' => $organization->name,
+                'domain_ids' => $domainIds,
+                'total_domains' => count($domainIds)
+            ]);
+
+            // STEP 3: Now process each domain for user syncing
             foreach ($this->domainNames as $domainName) {
                 try {
                     $domainName = strtolower(trim($domainName));
 
-                    // Find or create domain
-                    $domain = \App\Models\Domain::firstOrCreate(['domain' => $domainName]);
+                    // Find or create domain (already created in STEP 1, but fetch again for user syncing)
+                    $domain = \App\Models\Domain::where('domain', $domainName)->first();
 
-                    // Remove Default Organization from domain if this is a specific organization
+                    if (!$domain) {
+                        throw new \Exception("Domain {$domainName} not found after creation");
+                    }
+
+                    // Don't manipulate domain organizations here - we already synced them in STEP 2!
+                    // Just handle user migration if needed
                     if ($defaultOrganization && $organization->id !== $defaultOrganization->id) {
-                        $domainOrgIds = $domain->organizations()->pluck('organizations.id')->toArray();
-                        $domainOrgIds = array_diff($domainOrgIds, [$defaultOrganization->id]);
-
-                        // Add this organization
-                        if (!in_array($organization->id, $domainOrgIds)) {
-                            $domainOrgIds[] = $organization->id;
-                        }
-
-                        // Sync the updated organization list for this domain
-                        $domain->organizations()->sync($domainOrgIds);
-
                         // Move users from Default Organization to this organization
                         $defaultUsers = \App\Models\User::where('email', 'like', '%@' . $domain->domain)
                             ->where('organization_id', $defaultOrganization->id)
@@ -131,10 +145,8 @@ class SyncOrganizationDomainsJob implements ShouldQueue
                             $user->save();
                             $totalUsersAssigned++;
                         }
-                    } else {
-                        // For Default Organization, just add without removing anything
-                        $organization->domains()->syncWithoutDetaching([$domain->id]);
                     }
+                    // Note: No need to sync domain organizations here - already done in STEP 2!
 
                     // Sync users from other organizations if enabled
                     if ($this->syncUsers && $domain->user_count > 0) {

@@ -163,37 +163,62 @@ class Index extends Component
                 'is_active' => $this->is_active,
             ]);
 
-            // Process domains if provided - dispatch background job
+            // Parse domains from comma-separated string
+            $domainList = [];
             if (!empty($this->domains)) {
                 $domainList = array_map('trim', explode(',', $this->domains));
                 $domainList = array_filter($domainList); // Remove empty values
+            }
 
-                // Create sync log entry
-                $syncLog = \App\Models\SyncLog::create([
-                    'type' => 'sync_organization_domains',
-                    'status' => 'pending',
-                    'user_id' => auth()->id(),
-                    'total_items' => 0,
-                    'processed_items' => 0,
-                    'successful_items' => 0,
-                    'failed_items' => 0,
-                    'metadata' => [
+            // Get current domains for comparison
+            $currentDomains = $this->organizationToEdit->domains->pluck('domain')->toArray();
+            sort($currentDomains);
+            sort($domainList);
+
+            // Check if domains have changed
+            $domainsChanged = $currentDomains !== $domainList;
+
+            // Always sync domains if they changed (including removal of all domains)
+            if ($domainsChanged) {
+                if (!empty($domainList)) {
+                    // Create sync log entry for adding/updating domains
+                    $syncLog = \App\Models\SyncLog::create([
+                        'type' => 'sync_organization_domains',
+                        'status' => 'pending',
+                        'user_id' => auth()->id(),
+                        'total_items' => 0,
+                        'processed_items' => 0,
+                        'successful_items' => 0,
+                        'failed_items' => 0,
+                        'metadata' => [
+                            'organization_id' => $this->organizationToEdit->id,
+                            'organization_name' => $this->organizationToEdit->name,
+                            'domains' => $domainList,
+                            'action' => 'update',
+                        ],
+                    ]);
+
+                    // Dispatch the job to run in the background
+                    \App\Jobs\SyncOrganizationDomainsJob::dispatch(
+                        $syncLog->id,
+                        $this->organizationToEdit->id,
+                        $domainList,
+                        $this->syncUsers
+                    );
+
+                    session()->flash('message', "Organization updated successfully. Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
+                } else {
+                    // User cleared all domains - detach all domains from this organization
+                    $this->organizationToEdit->domains()->detach();
+
+                    \Illuminate\Support\Facades\Log::info('All domains removed from organization', [
                         'organization_id' => $this->organizationToEdit->id,
                         'organization_name' => $this->organizationToEdit->name,
-                        'domains' => $domainList,
-                        'action' => 'update',
-                    ],
-                ]);
+                        'removed_count' => count($currentDomains)
+                    ]);
 
-                // Dispatch the job to run in the background
-                \App\Jobs\SyncOrganizationDomainsJob::dispatch(
-                    $syncLog->id,
-                    $this->organizationToEdit->id,
-                    $domainList,
-                    $this->syncUsers
-                );
-
-                session()->flash('message', "Organization updated successfully. Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
+                    session()->flash('message', 'Organization updated successfully. All domains removed.');
+                }
             } else {
                 session()->flash('message', 'Organization updated successfully.');
             }
@@ -223,7 +248,6 @@ class Index extends Component
     public function deleteOrganization()
     {
         if ($this->organizationToDelete) {
-            \Illuminate\Support\Facades\DB::beginTransaction();
             try {
                 $organizationName = $this->organizationToDelete->name;
                 $organizationId = $this->organizationToDelete->id;
@@ -233,33 +257,53 @@ class Index extends Component
 
                 // Only proceed with user migration if this is NOT the Default Organization
                 if ($defaultOrganization && $organizationId !== $defaultOrganization->id) {
-                    // Move all users from this organization to Default Organization
-                    $usersToMove = \App\Models\User::where('organization_id', $organizationId)->get();
-                    $movedCount = 0;
+                    // Check if there are users to move
+                    $usersCount = \App\Models\User::where('organization_id', $organizationId)->count();
 
-                    foreach ($usersToMove as $user) {
-                        $user->organization_id = $defaultOrganization->id;
-                        $user->save();
-                        $movedCount++;
-                    }
+                    if ($usersCount > 0) {
+                        // Create sync log entry
+                        $syncLog = \App\Models\SyncLog::create([
+                            'type' => 'move_users_to_default_organization',
+                            'status' => 'pending',
+                            'user_id' => auth()->id(),
+                            'total_items' => 0,
+                            'processed_items' => 0,
+                            'successful_items' => 0,
+                            'failed_items' => 0,
+                            'metadata' => [
+                                'organization_id' => $organizationId,
+                                'organization_name' => $organizationName,
+                                'default_organization_id' => $defaultOrganization->id,
+                            ],
+                        ]);
 
-                    if ($movedCount > 0) {
-                        \Illuminate\Support\Facades\Log::info('Users moved to Default Organization after organization deletion', [
-                            'deleted_organization' => $organizationName,
-                            'moved_users' => $movedCount
+                        // Dispatch the job to run in the background
+                        \App\Jobs\MoveUsersToDefaultOrganizationJob::dispatch(
+                            $syncLog->id,
+                            $organizationId,
+                            $defaultOrganization->id
+                        );
+
+                        \Illuminate\Support\Facades\Log::info('Move users job dispatched before organization deletion', [
+                            'organization_id' => $organizationId,
+                            'organization_name' => $organizationName,
+                            'users_count' => $usersCount,
+                            'sync_log_id' => $syncLog->id
                         ]);
                     }
                 }
 
-                // Delete the organization
+                // Delete the organization immediately (users will be moved in background)
                 $this->organizationToDelete->delete();
 
-                \Illuminate\Support\Facades\DB::commit();
+                if (isset($syncLog)) {
+                    session()->flash('message', "Organization '{$organizationName}' deleted. User migration started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
+                } else {
+                    session()->flash('message', "Organization '{$organizationName}' deleted successfully.");
+                }
 
-                session()->flash('message', "Organization '{$organizationName}' deleted successfully.");
                 $this->cancelDelete();
             } catch (\Exception $e) {
-                \Illuminate\Support\Facades\DB::rollBack();
                 \Illuminate\Support\Facades\Log::error('Failed to delete organization', [
                     'error' => $e->getMessage(),
                     'organization_id' => $this->organizationToDelete->id
