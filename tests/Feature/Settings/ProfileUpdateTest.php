@@ -23,7 +23,7 @@ test('profile information can be updated', function () {
 
     $user->refresh();
 
-    expect($user->name)->toEqual('Test User');
+    expect($user->fullname)->toEqual('Test User');
     expect($user->email)->toEqual('test@example.com');
     expect($user->email_verified_at)->toBeNull();
 });
@@ -56,7 +56,8 @@ test('user can delete their account', function () {
         ->assertHasNoErrors()
         ->assertRedirect('/');
 
-    expect($user->fresh())->toBeNull();
+    // User is soft deleted, not hard deleted
+    expect($user->fresh()->trashed())->toBeTrue();
     expect(auth()->check())->toBeFalse();
 });
 

@@ -22,6 +22,7 @@ class User extends Authenticatable
      */
     protected $fillable = [
         'fullname',
+        'name', // Alias for fullname (backward compatibility)
         'email',
         'password',
         'organization_id',
@@ -61,6 +62,22 @@ class User extends Authenticatable
             'cm_status_changed_at' => 'datetime',
             'permission_to_track' => 'boolean',
         ];
+    }
+
+    /**
+     * Accessor for 'name' - maps to 'fullname' for backward compatibility
+     */
+    public function getNameAttribute(): string
+    {
+        return $this->fullname;
+    }
+
+    /**
+     * Mutator for 'name' - maps to 'fullname' for backward compatibility
+     */
+    public function setNameAttribute(string $value): void
+    {
+        $this->attributes['fullname'] = $value;
     }
 
     /**
