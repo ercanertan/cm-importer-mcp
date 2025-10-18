@@ -101,8 +101,23 @@ class SyncDomainOrganizationsJob implements ShouldQueue
             // Update each user's organizations
             foreach ($users as $user) {
                 try {
-                    // Sync user to the same organizations as the domain
-                    $user->organizations()->sync($this->organizationIds);
+                    // Get manually assigned organization IDs (preserve them)
+                    $manualOrgIds = $user->organizations()
+                        ->wherePivot('is_manual', true)
+                        ->pluck('organizations.id')
+                        ->toArray();
+
+                    // Merge manual assignments with domain-based assignments
+                    $allOrgIds = array_unique(array_merge($this->organizationIds, $manualOrgIds));
+
+                    // Prepare sync data: mark domain-based as is_manual=false
+                    $syncData = [];
+                    foreach ($allOrgIds as $orgId) {
+                        $syncData[$orgId] = ['is_manual' => in_array($orgId, $manualOrgIds)];
+                    }
+
+                    // Sync organizations (preserves manual assignments)
+                    $user->organizations()->sync($syncData);
 
                     // Update legacy organization_id to first organization
                     $user->organization_id = $this->organizationIds[0] ?? null;

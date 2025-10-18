@@ -126,6 +126,7 @@ class Domain extends Model
                         $pivotData[] = [
                             'user_id' => $userId,
                             'organization_id' => $orgId,
+                            'is_manual' => false, // Auto-assigned via domain sync
                             'created_at' => $now,
                             'updated_at' => $now
                         ];
@@ -223,6 +224,7 @@ class Domain extends Model
                     $pivotData[] = [
                         'user_id' => $userId,
                         'organization_id' => $organization->id,
+                        'is_manual' => false, // Auto-assigned via domain sync
                         'created_at' => $now,
                         'updated_at' => $now
                     ];

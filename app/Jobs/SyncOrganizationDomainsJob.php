@@ -141,10 +141,10 @@ class SyncOrganizationDomainsJob implements ShouldQueue
                             $user->domain_id = $domain->id;
                             $user->organization_id = $organization->id;
 
-                            // Also add to many-to-many if not already present
+                            // Also add to many-to-many if not already present (mark as is_manual=false for auto-assigned)
                             $userOrgIds = $user->organizations()->pluck('organizations.id')->toArray();
                             if (!in_array($organization->id, $userOrgIds)) {
-                                $user->organizations()->attach($organization->id);
+                                $user->organizations()->attach($organization->id, ['is_manual' => false]);
                             }
 
                             $user->save();

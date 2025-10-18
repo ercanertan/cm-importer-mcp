@@ -16,6 +16,16 @@ class Index extends Component
     public $showCreateModal = false;
     public $showEditModal = false;
     public $organizationToEdit = null;
+    public $showManageUsersModal = false;
+    public $organizationToManage = null;
+    public $userSearch = '';
+    public $selectedUsers = [];
+    public $autoAssignedUsers = [];
+    public $manuallyAssignedUsers = [];
+    public $userPage = 1;
+    public $usersPerPage = 5;
+    public $assignedUsersPage = 1;
+    public $assignedUsersPerPage = 5;
 
     // Form fields
     public $name = '';
@@ -34,7 +44,7 @@ class Index extends Component
     public function render()
     {
         $organizations = Organization::query()
-            ->withCount(['users', 'domains'])
+            ->withCount(['usersMany as users_count', 'domains'])
             ->when($this->search, function ($query) {
                 $query->where('name', 'like', '%' . $this->search . '%')
                     ->orWhere('description', 'like', '%' . $this->search . '%');
@@ -318,5 +328,187 @@ class Index extends Component
         $organization = Organization::findOrFail($id);
         $organization->update(['is_active' => !$organization->is_active]);
         session()->flash('message', 'Organization status updated.');
+    }
+
+    public function openManageUsersModal($id)
+    {
+        $this->organizationToManage = Organization::with('usersMany')->findOrFail($id);
+        $this->userSearch = '';
+
+        // Get users with pivot data to distinguish manual vs auto-assigned
+        $userOrgs = \Illuminate\Support\Facades\DB::table('organization_user')
+            ->where('organization_id', $id)
+            ->get();
+
+        $this->autoAssignedUsers = [];
+        $this->manuallyAssignedUsers = [];
+
+        foreach ($userOrgs as $pivot) {
+            if ($pivot->is_manual) {
+                $this->manuallyAssignedUsers[] = $pivot->user_id;
+            } else {
+                $this->autoAssignedUsers[] = $pivot->user_id;
+            }
+        }
+
+        // Selected users include both auto and manual
+        $this->selectedUsers = array_merge($this->autoAssignedUsers, $this->manuallyAssignedUsers);
+
+        $this->showManageUsersModal = true;
+    }
+
+    public function closeManageUsersModal()
+    {
+        $this->showManageUsersModal = false;
+        $this->organizationToManage = null;
+        $this->userSearch = '';
+        $this->selectedUsers = [];
+        $this->autoAssignedUsers = [];
+        $this->manuallyAssignedUsers = [];
+        $this->userPage = 1;
+        $this->assignedUsersPage = 1;
+    }
+
+    public function updatingUserSearch()
+    {
+        $this->userPage = 1;
+    }
+
+    public function loadMoreUsers()
+    {
+        $this->userPage++;
+    }
+
+    public function loadMoreAssignedUsers()
+    {
+        $this->assignedUsersPage++;
+    }
+
+    public function updateUsers()
+    {
+        $this->validate([
+            'selectedUsers' => 'array',
+            'selectedUsers.*' => 'exists:users,id',
+        ]);
+
+        try {
+            // Prepare sync data
+            $syncData = [];
+
+            foreach ($this->selectedUsers as $userId) {
+                // If it's in auto-assigned, keep it as auto (is_manual = false)
+                // If it's NOT in auto-assigned, it's manually added (is_manual = true)
+                $isManual = !in_array($userId, $this->autoAssignedUsers);
+                $syncData[$userId] = ['is_manual' => $isManual];
+            }
+
+            // Sync users (will preserve manual flag correctly)
+            $this->organizationToManage->usersMany()->sync($syncData);
+
+            session()->flash('message', 'Organization users updated successfully.');
+            $this->closeManageUsersModal();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to update organization users', [
+                'error' => $e->getMessage(),
+                'organization_id' => $this->organizationToManage->id
+            ]);
+            session()->flash('error', 'Failed to update users: ' . $e->getMessage());
+        }
+    }
+
+    public function getFilteredUsersProperty()
+    {
+        if (!$this->organizationToManage) {
+            return collect();
+        }
+
+        $query = \App\Models\User::query()
+            ->with('domain')
+            ->when($this->userSearch, function ($query) {
+                $query->where('fullname', 'like', '%' . $this->userSearch . '%')
+                    ->orWhere('email', 'like', '%' . $this->userSearch . '%');
+            })
+            ->orderBy('fullname');
+
+        // Use paginate and return items only
+        return $query->paginate($this->userPage * $this->usersPerPage)->items();
+    }
+
+    public function getTotalUsersCountProperty()
+    {
+        if (!$this->organizationToManage) {
+            return 0;
+        }
+
+        return \App\Models\User::query()
+            ->when($this->userSearch, function ($query) {
+                $query->where('fullname', 'like', '%' . $this->userSearch . '%')
+                    ->orWhere('email', 'like', '%' . $this->userSearch . '%');
+            })
+            ->count();
+    }
+
+    public function getHasMoreUsersProperty()
+    {
+        $filteredUsers = $this->filteredUsers;
+        $count = is_array($filteredUsers) ? count($filteredUsers) : $filteredUsers->count();
+        return $count < $this->totalUsersCount;
+    }
+
+    public function getAssignedUsersProperty()
+    {
+        if (!$this->organizationToManage) {
+            return collect();
+        }
+
+        $query = $this->organizationToManage->usersMany()
+            ->with('domain')
+            ->orderByRaw('CASE WHEN organization_user.is_manual = 1 THEN 0 ELSE 1 END')
+            ->orderBy('fullname');
+
+        // Use paginate and return items only
+        return $query->paginate($this->assignedUsersPage * $this->assignedUsersPerPage)->items();
+    }
+
+    public function getTotalAssignedUsersProperty()
+    {
+        if (!$this->organizationToManage) {
+            return 0;
+        }
+
+        return $this->organizationToManage->usersMany()->count();
+    }
+
+    public function getHasMoreAssignedUsersProperty()
+    {
+        $assignedUsers = $this->assignedUsers;
+        $count = is_array($assignedUsers) ? count($assignedUsers) : count($assignedUsers);
+        return $count < $this->totalAssignedUsers;
+    }
+
+    public function detachUser($userId)
+    {
+        try {
+            $this->organizationToManage->usersMany()->detach($userId);
+
+            // Remove from selected users array
+            $this->selectedUsers = array_diff($this->selectedUsers, [$userId]);
+
+            // Remove from auto/manual arrays
+            $this->autoAssignedUsers = array_diff($this->autoAssignedUsers, [$userId]);
+            $this->manuallyAssignedUsers = array_diff($this->manuallyAssignedUsers, [$userId]);
+
+            // Refresh the organization
+            $this->organizationToManage = Organization::with('usersMany')->findOrFail($this->organizationToManage->id);
+
+            session()->flash('message', 'User removed successfully.');
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to detach user', [
+                'error' => $e->getMessage(),
+                'organization_id' => $this->organizationToManage->id,
+                'user_id' => $userId
+            ]);
+            session()->flash('error', 'Failed to remove user: ' . $e->getMessage());
+        }
     }
 }

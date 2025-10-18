@@ -23,6 +23,7 @@
                 <flux:navlist.group :heading="__('Administration')" class="grid">
                     <flux:navlist.item icon="building-office-2" :href="route('admin.organizations.index')" :current="request()->routeIs('admin.organizations.*')" wire:navigate>{{ __('Organizations') }}</flux:navlist.item>
                     <flux:navlist.item icon="globe-alt" :href="route('admin.domains.index')" :current="request()->routeIs('admin.domains.*')" wire:navigate>{{ __('Domains') }}</flux:navlist.item>
+                    <flux:navlist.item icon="users" :href="route('admin.users.index')" :current="request()->routeIs('admin.users.*')" wire:navigate>{{ __('Users') }}</flux:navlist.item>
                     <flux:navlist.item icon="clock" :href="route('admin.sync-logs.index')" :current="request()->routeIs('admin.sync-logs.*')" wire:navigate>{{ __('Sync Logs') }}</flux:navlist.item>
                 </flux:navlist.group>
             </flux:navlist>

@@ -23,11 +23,21 @@ class Organization extends Model
     ];
 
     /**
-     * Get all users belonging to this organization
+     * Get all users belonging to this organization (legacy single organization)
      */
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    /**
+     * Get all users belonging to this organization (many-to-many)
+     */
+    public function usersMany(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'organization_user')
+            ->withPivot('is_manual')
+            ->withTimestamps();
     }
 
     /**
