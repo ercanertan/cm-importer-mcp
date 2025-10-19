@@ -50,13 +50,12 @@ describe('Organization User Management Modal', function () {
         expect($assignedUsers)->toHaveCount(2);
     });
 
-    it('attaches user manually using updateUsers method', function () {
+    it('attaches user manually using attachUser method', function () {
         $user1 = User::factory()->create(['email' => 'user1@example.com', 'fullname' => 'User One']);
 
         Livewire::test(OrganizationManager::class)
             ->call('openManageUsersModal', $this->org1->id)
-            ->set('selectedUsers', [$user1->id])
-            ->call('updateUsers');
+            ->call('attachUser', $user1->id, true);
 
         // Check user was attached with is_manual = true
         $pivot = DB::table('organization_user')
@@ -133,8 +132,8 @@ describe('Organization User Management Modal', function () {
     });
 
     it('paginates assigned users correctly', function () {
-        // Create 10 users and assign to org
-        for ($i = 1; $i <= 10; $i++) {
+        // Create 30 users and assign to org (more than 20 per page)
+        for ($i = 1; $i <= 30; $i++) {
             $user = User::factory()->create(['email' => "user{$i}@example.com", 'fullname' => "User {$i}"]);
             $this->org1->usersMany()->attach($user->id, ['is_manual' => false]);
         }
@@ -142,16 +141,17 @@ describe('Organization User Management Modal', function () {
         $component = Livewire::test(OrganizationManager::class)
             ->call('openManageUsersModal', $this->org1->id);
 
-        // Initial load should show first page (5 per page)
+        // Initial load should show first page (20 per page)
         $assignedUsers = $component->get('assignedUsers');
-        expect(count($assignedUsers))->toBeLessThanOrEqual(5);
+        expect(count($assignedUsers))->toBeLessThanOrEqual(20);
 
         // Load more
         $component->call('loadMoreAssignedUsers');
         $assignedUsersAfter = $component->get('assignedUsers');
 
-        // Should show more users now
+        // Should show more users now (40 total: 2 pages * 20)
         expect(count($assignedUsersAfter))->toBeGreaterThan(count($assignedUsers));
+        expect(count($assignedUsersAfter))->toBe(30); // All 30 users should be loaded now
     });
 
     it('displays manual assignment indicator correctly', function () {
@@ -218,19 +218,18 @@ describe('Organization User Management Modal', function () {
             ->assertSet('userSearch', '');
     });
 
-    it('prevents attaching same user twice using sync', function () {
+    it('prevents attaching same user twice using attachUser', function () {
         $user1 = User::factory()->create(['email' => 'user1@example.com', 'fullname' => 'User One']);
 
         // Attach user first time
         $this->org1->usersMany()->attach($user1->id, ['is_manual' => true]);
 
-        // Try to sync same user again using updateUsers
+        // Try to attach same user again using attachUser
         Livewire::test(OrganizationManager::class)
             ->call('openManageUsersModal', $this->org1->id)
-            ->set('selectedUsers', [$user1->id])
-            ->call('updateUsers');
+            ->call('attachUser', $user1->id, true);
 
-        // Should only have one pivot entry (sync prevents duplicates)
+        // Should only have one pivot entry (attachUser checks for duplicates)
         $pivotCount = DB::table('organization_user')
             ->where('user_id', $user1->id)
             ->where('organization_id', $this->org1->id)
@@ -244,8 +243,7 @@ describe('Organization User Management Modal', function () {
 
         Livewire::test(OrganizationManager::class)
             ->call('openManageUsersModal', $this->org1->id)
-            ->set('selectedUsers', [$user1->id])
-            ->call('updateUsers');
+            ->call('attachUser', $user1->id, true);
 
         // Note: OrganizationManager doesn't update legacy organization_id
         // This is handled in domain sync jobs instead

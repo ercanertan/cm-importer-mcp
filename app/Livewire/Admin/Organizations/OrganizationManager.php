@@ -20,12 +20,13 @@ class OrganizationManager extends Component
     public $organizationToManage = null;
     public $userSearch = '';
     public $selectedUsers = [];
-    public $autoAssignedUsers = [];
-    public $manuallyAssignedUsers = [];
+    // REMOVED: No longer loading ALL user IDs into memory
+    // public $autoAssignedUsers = [];
+    // public $manuallyAssignedUsers = [];
     public $userPage = 1;
-    public $usersPerPage = 5;
+    public $usersPerPage = 20; // Increased from 5 to 20 for better UX
     public $assignedUsersPage = 1;
-    public $assignedUsersPerPage = 5;
+    public $assignedUsersPerPage = 20; // Increased from 5 to 20 for better UX
 
     // Form fields
     public $name = '';
@@ -332,27 +333,14 @@ class OrganizationManager extends Component
 
     public function openManageUsersModal($id)
     {
-        $this->organizationToManage = Organization::with('usersMany')->findOrFail($id);
+        // PERFORMANCE: Don't eager load users - only load organization metadata
+        $this->organizationToManage = Organization::findOrFail($id);
         $this->userSearch = '';
 
-        // Get users with pivot data to distinguish manual vs auto-assigned
-        $userOrgs = \Illuminate\Support\Facades\DB::table('organization_user')
-            ->where('organization_id', $id)
-            ->get();
-
-        $this->autoAssignedUsers = [];
-        $this->manuallyAssignedUsers = [];
-
-        foreach ($userOrgs as $pivot) {
-            if ($pivot->is_manual) {
-                $this->manuallyAssignedUsers[] = $pivot->user_id;
-            } else {
-                $this->autoAssignedUsers[] = $pivot->user_id;
-            }
-        }
-
-        // Selected users include both auto and manual
-        $this->selectedUsers = array_merge($this->autoAssignedUsers, $this->manuallyAssignedUsers);
+        // PERFORMANCE: Don't load ALL user IDs into memory!
+        // For organizations with 50k+ users, loading all IDs is still slow
+        // Instead, we'll query the database on-demand for each paginated view
+        $this->selectedUsers = [];
 
         $this->showManageUsersModal = true;
     }
@@ -363,8 +351,6 @@ class OrganizationManager extends Component
         $this->organizationToManage = null;
         $this->userSearch = '';
         $this->selectedUsers = [];
-        $this->autoAssignedUsers = [];
-        $this->manuallyAssignedUsers = [];
         $this->userPage = 1;
         $this->assignedUsersPage = 1;
     }
@@ -384,37 +370,9 @@ class OrganizationManager extends Component
         $this->assignedUsersPage++;
     }
 
-    public function updateUsers()
-    {
-        $this->validate([
-            'selectedUsers' => 'array',
-            'selectedUsers.*' => 'exists:users,id',
-        ]);
-
-        try {
-            // Prepare sync data
-            $syncData = [];
-
-            foreach ($this->selectedUsers as $userId) {
-                // If it's in auto-assigned, keep it as auto (is_manual = false)
-                // If it's NOT in auto-assigned, it's manually added (is_manual = true)
-                $isManual = !in_array($userId, $this->autoAssignedUsers);
-                $syncData[$userId] = ['is_manual' => $isManual];
-            }
-
-            // Sync users (will preserve manual flag correctly)
-            $this->organizationToManage->usersMany()->sync($syncData);
-
-            session()->flash('message', 'Organization users updated successfully.');
-            $this->closeManageUsersModal();
-        } catch (\Exception $e) {
-            \Illuminate\Support\Facades\Log::error('Failed to update organization users', [
-                'error' => $e->getMessage(),
-                'organization_id' => $this->organizationToManage->id
-            ]);
-            session()->flash('error', 'Failed to update users: ' . $e->getMessage());
-        }
-    }
+    // REMOVED: updateUsers() method
+    // For large organizations (50k+ users), we can't track selections in memory
+    // Instead, users are added/removed individually using attachUser/detachUser
 
     public function getFilteredUsersProperty()
     {
@@ -423,7 +381,10 @@ class OrganizationManager extends Component
         }
 
         $query = \App\Models\User::query()
-            ->with('domain')
+            ->with(['domain', 'organizations' => function ($query) {
+                $query->where('organizations.id', $this->organizationToManage->id)
+                    ->select('organizations.id', 'organizations.name');
+            }])
             ->when($this->userSearch, function ($query) {
                 $query->where('fullname', 'like', '%' . $this->userSearch . '%')
                     ->orWhere('email', 'like', '%' . $this->userSearch . '%');
@@ -486,20 +447,44 @@ class OrganizationManager extends Component
         return $count < $this->totalAssignedUsers;
     }
 
+    public function attachUser($userId, $isManual = true)
+    {
+        try {
+            // Check if user is already attached
+            $exists = \Illuminate\Support\Facades\DB::table('organization_user')
+                ->where('organization_id', $this->organizationToManage->id)
+                ->where('user_id', $userId)
+                ->exists();
+
+            if ($exists) {
+                session()->flash('error', 'User is already assigned to this organization.');
+                return;
+            }
+
+            // Attach user with is_manual flag
+            $this->organizationToManage->usersMany()->attach($userId, ['is_manual' => $isManual]);
+
+            // PERFORMANCE: Don't reload all users, just refresh the organization metadata
+            $this->organizationToManage = Organization::findOrFail($this->organizationToManage->id);
+
+            session()->flash('message', 'User added successfully.');
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to attach user', [
+                'error' => $e->getMessage(),
+                'organization_id' => $this->organizationToManage->id,
+                'user_id' => $userId
+            ]);
+            session()->flash('error', 'Failed to add user: ' . $e->getMessage());
+        }
+    }
+
     public function detachUser($userId)
     {
         try {
             $this->organizationToManage->usersMany()->detach($userId);
 
-            // Remove from selected users array
-            $this->selectedUsers = array_diff($this->selectedUsers, [$userId]);
-
-            // Remove from auto/manual arrays
-            $this->autoAssignedUsers = array_diff($this->autoAssignedUsers, [$userId]);
-            $this->manuallyAssignedUsers = array_diff($this->manuallyAssignedUsers, [$userId]);
-
-            // Refresh the organization
-            $this->organizationToManage = Organization::with('usersMany')->findOrFail($this->organizationToManage->id);
+            // PERFORMANCE: Don't reload all users, just refresh the organization metadata
+            $this->organizationToManage = Organization::findOrFail($this->organizationToManage->id);
 
             session()->flash('message', 'User removed successfully.');
         } catch (\Exception $e) {
