@@ -18,8 +18,14 @@ class RecentImports extends Component
     {
         $recentImports = $this->importService->getImportHistory();
 
+        // Check if any imports are currently processing
+        $hasActiveImports = $recentImports->contains(function($import) {
+            return in_array($import->status, ['pending', 'processing']);
+        });
+
         return view('livewire.campaign-monitor.recent-imports', [
-            'recentImports' => $recentImports
+            'recentImports' => $recentImports,
+            'hasActiveImports' => $hasActiveImports
         ]);
     }
 }

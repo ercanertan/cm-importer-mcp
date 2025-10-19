@@ -19,8 +19,13 @@ class SyncLogViewer extends Component
             ->orderBy('created_at', 'desc')
             ->paginate(20);
 
+        // Check if any sync jobs are currently running
+        $hasActiveSyncs = SyncLog::whereIn('status', ['pending', 'running'])
+            ->exists();
+
         return view('livewire.admin.sync-logs.sync-log-viewer', [
-            'syncLogs' => $syncLogs
+            'syncLogs' => $syncLogs,
+            'hasActiveSyncs' => $hasActiveSyncs
         ])->layout('components.layouts.app', ['title' => 'Sync Logs']);
     }
 

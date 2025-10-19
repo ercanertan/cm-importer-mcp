@@ -1,4 +1,4 @@
-<div class="py-12" wire:poll.5s>
+<div class="py-12" @if($hasActiveSyncs) wire:poll.5s @endif>
     <div class="bg-white max-w-7xl mx-auto sm:px-6 lg:px-8">
         <div class="overflow-hidden shadow-sm sm:rounded-lg">
             <div class="p-6 text-gray-900">
@@ -12,11 +12,19 @@
                 </div>
 
                 <!-- Auto-refresh indicator -->
-                <div class="mb-4 bg-blue-50 border border-blue-200 px-4 py-2 rounded-lg">
-                    <p class="text-sm text-blue-800">
-                        <span class="font-semibold">Auto-refresh enabled:</span> This page automatically updates every 5 seconds using Livewire polling.
-                    </p>
-                </div>
+                @if($hasActiveSyncs)
+                    <div class="mb-4 bg-blue-50 border border-blue-200 px-4 py-2 rounded-lg">
+                        <p class="text-sm text-blue-800">
+                            <span class="font-semibold">Auto-refresh enabled:</span> This page automatically updates every 5 seconds while there are active sync jobs.
+                        </p>
+                    </div>
+                @else
+                    <div class="mb-4 bg-gray-50 border border-gray-200 px-4 py-2 rounded-lg">
+                        <p class="text-sm text-gray-700">
+                            <span class="font-semibold">Auto-refresh paused:</span> No active sync jobs. Use "Refresh Now" to manually update.
+                        </p>
+                    </div>
+                @endif
 
                 <!-- Flash Messages -->
                 @if (session()->has('message'))

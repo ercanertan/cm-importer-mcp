@@ -1,4 +1,4 @@
-<div wire:poll.3s>
+<div @if($hasActiveImports) wire:poll.3s @endif>
     @if(!empty($recentImports) && $recentImports->count() > 0)
         <div class="bg-white shadow rounded-lg p-6">
             <h2 class="text-xl font-semibold mb-4">Recent Imports</h2>

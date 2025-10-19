@@ -351,12 +351,16 @@ class DomainManager extends Component
             // Dispatch the job to run in the background
             \App\Jobs\SyncAllDomainsJob::dispatch($syncLog->id);
 
+            // Start polling for status updates
+            $this->activeSyncLogId = $syncLog->id;
+            $this->pollingInterval = 2000; // Poll every 2 seconds
+
             Log::info('Sync all domains job dispatched', [
                 'user_id' => auth()->id(),
                 'sync_log_id' => $syncLog->id
             ]);
 
-            session()->flash('message', "Domain sync started in the background (ID: #{$syncLog->id}). Check the sync logs to monitor progress.");
+            session()->flash('message', "Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
         } catch (\Exception $e) {
             Log::error('Failed to dispatch sync all domains job', [
                 'error' => $e->getMessage()

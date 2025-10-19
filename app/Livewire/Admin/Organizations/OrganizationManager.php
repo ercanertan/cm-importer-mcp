@@ -36,6 +36,11 @@ class OrganizationManager extends Component
     public $assignedUsersPage = 1;
     public $assignedUsersPerPage = 20; // Increased from 5 to 20 for better UX
 
+    // Polling properties for background job tracking
+    public $activeSyncLogId = null;
+    public $syncStatus = null;
+    public $pollingInterval = null;
+
     // Form fields
     public $name = '';
     public $description = '';
@@ -48,6 +53,45 @@ class OrganizationManager extends Component
     public function updatingSearch()
     {
         $this->resetPage();
+    }
+
+    /**
+     * Check the status of active sync job and stop polling when complete
+     */
+    public function checkSyncStatus()
+    {
+        if (!$this->activeSyncLogId) {
+            $this->pollingInterval = null;
+            return;
+        }
+
+        $syncLog = \App\Models\SyncLog::find($this->activeSyncLogId);
+
+        if (!$syncLog) {
+            $this->activeSyncLogId = null;
+            $this->pollingInterval = null;
+            return;
+        }
+
+        $this->syncStatus = [
+            'status' => $syncLog->status,
+            'progress' => $syncLog->processed_items && $syncLog->total_items
+                ? round(($syncLog->processed_items / $syncLog->total_items) * 100, 1)
+                : 0,
+            'processed' => $syncLog->processed_items ?? 0,
+            'total' => $syncLog->total_items ?? 0,
+            'successful' => $syncLog->successful_items ?? 0,
+            'failed' => $syncLog->failed_items ?? 0,
+        ];
+
+        // Stop polling if job is completed or failed
+        if (in_array($syncLog->status, ['completed', 'failed'])) {
+            $this->pollingInterval = null;
+            $this->activeSyncLogId = null;
+
+            // Refresh the organizations list to show updated data
+            $this->dispatch('$refresh');
+        }
     }
 
     public function render()
@@ -126,6 +170,10 @@ class OrganizationManager extends Component
                     $domainList,
                     $this->syncUsers
                 );
+
+                // Start polling for status updates
+                $this->activeSyncLogId = $syncLog->id;
+                $this->pollingInterval = 2000; // Poll every 2 seconds
 
                 session()->flash('message', "Organization created successfully. Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
             } else {
@@ -229,6 +277,10 @@ class OrganizationManager extends Component
                         $this->syncUsers
                     );
 
+                    // Start polling for status updates
+                    $this->activeSyncLogId = $syncLog->id;
+                    $this->pollingInterval = 2000; // Poll every 2 seconds
+
                     session()->flash('message', "Organization updated successfully. Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
                 } else {
                     // User cleared all domains - detach all domains from this organization
@@ -306,6 +358,10 @@ class OrganizationManager extends Component
                             $organizationId,
                             $defaultOrganization->id
                         );
+
+                        // Start polling for status updates
+                        $this->activeSyncLogId = $syncLog->id;
+                        $this->pollingInterval = 2000; // Poll every 2 seconds
 
                         \Illuminate\Support\Facades\Log::info('Move users job dispatched before organization deletion', [
                             'organization_id' => $organizationId,
