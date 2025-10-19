@@ -393,13 +393,18 @@ class OrganizationManager extends Component
             return collect();
         }
 
+        // Don't run query if no search term - improves initial modal load performance
+        if (empty($this->userSearch)) {
+            return collect();
+        }
+
         $query = \App\Models\User::query()
             ->with(['domain', 'organizations' => function ($query) {
                 $query->where('organizations.id', $this->organizationToManage->id)
                     ->select('organizations.id', 'organizations.name')
                     ->withPivot('is_manual');
             }])
-            ->when($this->userSearch, function ($query) {
+            ->where(function ($query) {
                 $query->where('fullname', 'like', '%' . $this->userSearch . '%')
                     ->orWhere('email', 'like', '%' . $this->userSearch . '%');
             })
@@ -409,23 +414,30 @@ class OrganizationManager extends Component
         return $query->paginate($this->userPage * $this->usersPerPage)->items();
     }
 
-    public function getTotalUsersCountProperty()
+    #[\Livewire\Attributes\Computed]
+    public function totalUsersCount()
     {
         if (!$this->organizationToManage) {
             return 0;
         }
 
+        // Don't run count query if no search term
+        if (empty($this->userSearch)) {
+            return 0;
+        }
+
         return \App\Models\User::query()
-            ->when($this->userSearch, function ($query) {
+            ->where(function ($query) {
                 $query->where('fullname', 'like', '%' . $this->userSearch . '%')
                     ->orWhere('email', 'like', '%' . $this->userSearch . '%');
             })
             ->count();
     }
 
-    public function getHasMoreUsersProperty()
+    #[\Livewire\Attributes\Computed]
+    public function hasMoreUsers()
     {
-        $filteredUsers = $this->filteredUsers();
+        $filteredUsers = $this->filteredUsers;
         $count = is_array($filteredUsers) ? count($filteredUsers) : $filteredUsers->count();
         return $count < $this->totalUsersCount;
     }
@@ -446,7 +458,8 @@ class OrganizationManager extends Component
         return $query->paginate($this->assignedUsersPage * $this->assignedUsersPerPage)->items();
     }
 
-    public function getTotalAssignedUsersProperty()
+    #[\Livewire\Attributes\Computed]
+    public function totalAssignedUsers()
     {
         if (!$this->organizationToManage) {
             return 0;
@@ -455,9 +468,10 @@ class OrganizationManager extends Component
         return $this->organizationToManage->usersMany()->count();
     }
 
-    public function getHasMoreAssignedUsersProperty()
+    #[\Livewire\Attributes\Computed]
+    public function hasMoreAssignedUsers()
     {
-        $assignedUsers = $this->assignedUsers();
+        $assignedUsers = $this->assignedUsers;
         $count = is_array($assignedUsers) ? count($assignedUsers) : count($assignedUsers);
         return $count < $this->totalAssignedUsers;
     }
