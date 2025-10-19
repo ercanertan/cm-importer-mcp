@@ -20,6 +20,10 @@ Route::middleware(['auth'])->group(function () {
     Volt::route('settings/password', 'settings.password')->name('password.edit');
     Volt::route('settings/appearance', 'settings.appearance')->name('appearance.edit');
 
+    // User Profile Custom Fields
+    Route::get('/profile/custom-fields', \App\Livewire\UserProfile\CustomFieldsEditor::class)
+        ->name('profile.custom-fields');
+
     Volt::route('settings/two-factor', 'settings.two-factor')
         ->middleware(
             when(
@@ -43,9 +47,17 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/users', \App\Livewire\Admin\Users\UserManager::class)
         ->name('admin.users.index');
 
+    // Admin User Custom Fields Editor
+    Route::get('/admin/users/{userId}/custom-fields', \App\Livewire\Admin\Users\UserCustomFieldsEditor::class)
+        ->name('admin.users.custom-fields.edit');
+
     // Admin Sync Logs Viewer
     Route::get('/admin/sync-logs', \App\Livewire\Admin\SyncLogs\SyncLogViewer::class)
         ->name('admin.sync-logs.index');
+
+    // Admin Custom Fields Management
+    Route::get('/admin/custom-fields', \App\Livewire\Admin\CustomFields\CustomFieldManager::class)
+        ->name('admin.custom-fields.index');
 });
 
 // Campaign Monitor Import Routes

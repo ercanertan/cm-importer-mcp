@@ -14,12 +14,14 @@ class CmCustomField extends Model
         'data_type',
         'options',
         'is_active',
+        'is_user_editable',
         'last_seen_at',
     ];
 
     protected $casts = [
         'options' => 'array',
         'is_active' => 'boolean',
+        'is_user_editable' => 'boolean',
         'last_seen_at' => 'datetime',
     ];
 
@@ -38,6 +40,11 @@ class CmCustomField extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    public function scopeUserEditable($query)
+    {
+        return $query->where('is_user_editable', true)->where('is_active', true);
     }
 
     public function scopeByFieldKey($query, $fieldKey)

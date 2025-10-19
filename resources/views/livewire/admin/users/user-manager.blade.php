@@ -73,9 +73,14 @@
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                         <button wire:click="openManageModal({{ $user->id }})"
-                                                class="text-indigo-700 hover:text-indigo-900 font-semibold">
+                                                class="text-indigo-700 hover:text-indigo-900 font-semibold mr-4">
                                             Manage Orgs
                                         </button>
+                                        <a href="{{ route('admin.users.custom-fields.edit', $user->id) }}"
+                                           wire:navigate
+                                           class="text-purple-700 hover:text-purple-900 font-semibold">
+                                            Custom Fields
+                                        </a>
                                     </td>
                                 </tr>
                             @empty
