@@ -31,6 +31,8 @@ class DomainManager extends Component
     public $selectedOrganizations = [];
     public $domainUsers = [];
     public $userOrganizationStats = [];
+    public $totalUserCount = 0;
+    public $connectedOrganizations = [];
 
     protected $queryString = ['search'];
 
@@ -170,14 +172,24 @@ class DomainManager extends Component
 
     public function openEditModal($id)
     {
-        $domain = Domain::with('organizations')->findOrFail($id);
-        $this->domainToEdit = $domain;
+        $domain = Domain::with('organizations')->withCount('users')->findOrFail($id);
+
         $this->domain = $domain->domain;
         $this->selectedOrganizations = $domain->organizations->pluck('id')->toArray();
 
+        // Cache user count and organizations to avoid repeated queries
+        $this->totalUserCount = $domain->users_count;
+        $this->connectedOrganizations = $domain->organizations->toArray();
+
+        // Store domain WITHOUT relationships to avoid serialization issues
+        $domain->unsetRelation('organizations');
+        $domain->unsetRelation('users');
+        $this->domainToEdit = $domain;
+
         // Load users associated with this domain, grouped by organization (LIMIT 100 for preview)
+        // Only load organizations (many-to-many), not organization (belongsTo) to avoid duplicates
         $this->domainUsers = \App\Models\User::where('domain_id', $id)
-            ->with(['organization', 'organizations'])
+            ->with('organizations')
             ->orderBy('organization_id')
             ->orderBy('fullname')
             ->limit(100)
@@ -231,7 +243,7 @@ class DomainManager extends Component
     {
         $this->showEditModal = false;
         $this->domainToEdit = null;
-        $this->reset(['domain', 'selectedOrganizations', 'domainUsers', 'userOrganizationStats']);
+        $this->reset(['domain', 'selectedOrganizations', 'domainUsers', 'userOrganizationStats', 'totalUserCount', 'connectedOrganizations']);
         $this->resetValidation();
     }
 

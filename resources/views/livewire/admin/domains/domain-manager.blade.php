@@ -292,7 +292,7 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
                                         </svg>
                                         Organization Memberships
-                                        <span class="ml-2 text-xs font-normal text-gray-600">({{ $domainToEdit->user_count }} total users)</span>
+                                        <span class="ml-2 text-xs font-normal text-gray-600">({{ $totalUserCount }} total users)</span>
                                     </label>
                                     <div class="border-2 border-blue-300 rounded-lg p-4 bg-blue-50">
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -309,8 +309,8 @@
                                                         <div class="flex-1 min-w-0">
                                                             <p class="text-sm font-semibold text-gray-900 truncate">{{ $stat['name'] }}</p>
                                                             <p class="text-xs text-gray-500">
-                                                                @if($domainToEdit->user_count != 0)
-                                                                {{ number_format(($stat['count'] / $domainToEdit->user_count) * 100, 1) }}% membership rate
+                                                                @if($totalUserCount != 0)
+                                                                {{ number_format(($stat['count'] / $totalUserCount) * 100, 1) }}% membership rate
                                                                 @endif
                                                             </p>
                                                         </div>
@@ -328,7 +328,7 @@
                                                 <div>
                                                     <p class="text-xs font-semibold text-gray-600 mb-1">Total Users:</p>
                                                     <p class="text-lg font-bold text-blue-600">
-                                                        {{ number_format($domainToEdit->user_count) }}
+                                                        {{ number_format($totalUserCount) }}
                                                     </p>
                                                 </div>
                                                 <div>
@@ -350,7 +350,7 @@
                             @endif
 
                             <!-- Domain's Connected Organizations Info -->
-                            @if($domainToEdit->organizations->count() > 0)
+                            @if(count($connectedOrganizations) > 0)
                                 <div class="mb-4">
                                     <label class="block text-sm font-semibold text-gray-900 mb-2">
                                         <svg class="inline w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -360,12 +360,12 @@
                                     </label>
                                     <div class="border-2 border-green-300 rounded-lg p-3 bg-green-50">
                                         <div class="flex flex-wrap gap-2">
-                                            @foreach($domainToEdit->organizations as $connectedOrg)
+                                            @foreach($connectedOrganizations as $connectedOrg)
                                                 <span class="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-bold bg-green-600 text-white shadow-sm">
                                                     <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
                                                     </svg>
-                                                    {{ $connectedOrg->name }}
+                                                    {{ $connectedOrg['name'] }}
                                                 </span>
                                             @endforeach
                                         </div>
@@ -373,7 +373,7 @@
                                             <svg class="inline w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                                                 <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
                                             </svg>
-                                            This domain is configured to work with {{ $domainToEdit->organizations->count() }} organization{{ $domainToEdit->organizations->count() != 1 ? 's' : '' }}
+                                            This domain is configured to work with {{ count($connectedOrganizations) }} organization{{ count($connectedOrganizations) != 1 ? 's' : '' }}
                                         </p>
                                     </div>
                                 </div>
@@ -468,7 +468,7 @@
                                     </div>
                                     @if(count($domainUsers) >= 100)
                                         <p class="mt-2 text-xs text-gray-600 font-medium">
-                                            Showing first 100 users. Total user count: {{ $domainToEdit->user_count }}
+                                            Showing first 100 users. Total user count: {{ $totalUserCount }}
                                         </p>
                                     @endif
                                 </div>
