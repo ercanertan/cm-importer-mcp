@@ -28,7 +28,15 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('organization_user', function (Blueprint $table) {
-            $table->dropIndex('org_user_org_id_is_manual_idx');
+            // Note: We can't drop org_user_org_id_is_manual_idx because organization_id
+            // is part of a foreign key constraint. MySQL creates its own index for foreign keys.
+            // If you really need to drop this, you would need to:
+            // 1. Drop the foreign key constraint first
+            // 2. Drop the index
+            // 3. Recreate the foreign key constraint
+            // But for performance indexes, it's generally safe to leave them.
+
+            // Only drop the user_id index as it's not part of any foreign key
             $table->dropIndex('org_user_user_id_idx');
         });
     }

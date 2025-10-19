@@ -12,11 +12,19 @@ class OrganizationManager extends Component
 
     public $search = '';
     public $showDeleteModal = false;
+
+    #[\Livewire\Attributes\Locked]
     public $organizationToDelete = null;
+
     public $showCreateModal = false;
     public $showEditModal = false;
+
+    #[\Livewire\Attributes\Locked]
     public $organizationToEdit = null;
+
     public $showManageUsersModal = false;
+
+    #[\Livewire\Attributes\Locked]
     public $organizationToManage = null;
     public $userSearch = '';
     public $selectedUsers = [];
@@ -137,7 +145,7 @@ class OrganizationManager extends Component
     public function openEditModal($id)
     {
         $organization = Organization::with('domains')->findOrFail($id);
-        $this->organizationToEdit = $organization;
+
         $this->name = $organization->name;
         $this->description = $organization->description;
         $this->is_active = $organization->is_active;
@@ -145,6 +153,10 @@ class OrganizationManager extends Component
         // Load current domains as comma-separated string
         $this->domains = $organization->domains->pluck('domain')->implode(', ');
         $this->syncUsers = true; // Default to true
+
+        // Store organization WITHOUT relationships to avoid serialization issues
+        $organization->unsetRelation('domains');
+        $this->organizationToEdit = $organization;
 
         $this->showEditModal = true;
     }
@@ -374,7 +386,8 @@ class OrganizationManager extends Component
     // For large organizations (50k+ users), we can't track selections in memory
     // Instead, users are added/removed individually using attachUser/detachUser
 
-    public function getFilteredUsersProperty()
+    #[\Livewire\Attributes\Computed]
+    public function filteredUsers()
     {
         if (!$this->organizationToManage) {
             return collect();
@@ -383,7 +396,8 @@ class OrganizationManager extends Component
         $query = \App\Models\User::query()
             ->with(['domain', 'organizations' => function ($query) {
                 $query->where('organizations.id', $this->organizationToManage->id)
-                    ->select('organizations.id', 'organizations.name');
+                    ->select('organizations.id', 'organizations.name')
+                    ->withPivot('is_manual');
             }])
             ->when($this->userSearch, function ($query) {
                 $query->where('fullname', 'like', '%' . $this->userSearch . '%')
@@ -411,12 +425,13 @@ class OrganizationManager extends Component
 
     public function getHasMoreUsersProperty()
     {
-        $filteredUsers = $this->filteredUsers;
+        $filteredUsers = $this->filteredUsers();
         $count = is_array($filteredUsers) ? count($filteredUsers) : $filteredUsers->count();
         return $count < $this->totalUsersCount;
     }
 
-    public function getAssignedUsersProperty()
+    #[\Livewire\Attributes\Computed]
+    public function assignedUsers()
     {
         if (!$this->organizationToManage) {
             return collect();
@@ -442,7 +457,7 @@ class OrganizationManager extends Component
 
     public function getHasMoreAssignedUsersProperty()
     {
-        $assignedUsers = $this->assignedUsers;
+        $assignedUsers = $this->assignedUsers();
         $count = is_array($assignedUsers) ? count($assignedUsers) : count($assignedUsers);
         return $count < $this->totalAssignedUsers;
     }

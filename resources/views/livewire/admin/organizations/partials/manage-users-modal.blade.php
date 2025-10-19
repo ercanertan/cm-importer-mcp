@@ -174,8 +174,9 @@
                                     @forelse($this->filteredUsers as $user)
                                         @php
                                             // Check if user is already assigned to THIS organization
-                                            $isAssigned = $user->organizations->contains('id', $organizationToManage->id);
-                                            $isManual = $isAssigned && $user->organizations->firstWhere('id', $organizationToManage->id)->pivot->is_manual;
+                                            $userOrg = $user->organizations->firstWhere('id', $organizationToManage->id);
+                                            $isAssigned = $userOrg !== null;
+                                            $isManual = $isAssigned ? $userOrg->pivot->is_manual : false;
                                         @endphp
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-3 py-2 text-sm text-gray-900">

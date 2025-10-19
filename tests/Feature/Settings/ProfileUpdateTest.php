@@ -56,8 +56,8 @@ test('user can delete their account', function () {
         ->assertHasNoErrors()
         ->assertRedirect('/');
 
-    // User is soft deleted, not hard deleted
-    expect($user->fresh()->trashed())->toBeTrue();
+    // User is hard deleted (soft deletes removed from project)
+    expect($user->fresh())->toBeNull();
     expect(auth()->check())->toBeFalse();
 });
 
