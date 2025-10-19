@@ -7,7 +7,7 @@
             <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg leading-6 font-bold text-gray-900">
-                        Manage Users for {{ $organizationToManage->name }}
+                        Manage Users for {{ $this->organizationToManage->name }}
                     </h3>
                     <button type="button" wire:click="closeManageUsersModal"
                             class="text-gray-400 hover:text-gray-600">
@@ -22,11 +22,11 @@
                     <div class="grid grid-cols-2 gap-2 text-sm">
                         <div>
                             <span class="font-semibold text-gray-600">Description:</span>
-                            <span class="text-gray-900">{{ $organizationToManage->description ?: 'N/A' }}</span>
+                            <span class="text-gray-900">{{ $this->organizationToManage->description ?: 'N/A' }}</span>
                         </div>
                         <div>
                             <span class="font-semibold text-gray-600">Status:</span>
-                            @if($organizationToManage->is_active)
+                            @if($this->organizationToManage->is_active)
                                 <span class="px-2 py-1 inline-flex text-xs font-bold rounded-full bg-green-100 text-green-900 border border-green-300">
                                     Active
                                 </span>
@@ -174,7 +174,7 @@
                                     @forelse($this->filteredUsers as $user)
                                         @php
                                             // Check if user is already assigned to THIS organization
-                                            $userOrg = $user->organizations->firstWhere('id', $organizationToManage->id);
+                                            $userOrg = $user->organizations->firstWhere('id', $this->organizationToManage->id);
                                             $isAssigned = $userOrg !== null;
                                             $isManual = $isAssigned ? $userOrg->pivot->is_manual : false;
                                         @endphp

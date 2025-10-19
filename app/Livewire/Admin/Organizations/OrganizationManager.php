@@ -25,7 +25,7 @@ class OrganizationManager extends Component
     public $showManageUsersModal = false;
 
     #[\Livewire\Attributes\Locked]
-    public $organizationToManage = null;
+    public $organizationToManageId = null;
     public $userSearch = '';
     public $selectedUsers = [];
     // REMOVED: No longer loading ALL user IDs into memory
@@ -228,7 +228,10 @@ class OrganizationManager extends Component
         ]);
 
         try {
-            $this->organizationToEdit->update([
+            // Reload organization with relationships to avoid serialization issues
+            $organization = Organization::with('domains')->findOrFail($this->organizationToEdit->id);
+
+            $organization->update([
                 'name' => $this->name,
                 'description' => $this->description,
                 'is_active' => $this->is_active,
@@ -242,7 +245,7 @@ class OrganizationManager extends Component
             }
 
             // Get current domains for comparison
-            $currentDomains = $this->organizationToEdit->domains->pluck('domain')->toArray();
+            $currentDomains = $organization->domains->pluck('domain')->toArray();
             sort($currentDomains);
             sort($domainList);
 
@@ -262,8 +265,8 @@ class OrganizationManager extends Component
                         'successful_items' => 0,
                         'failed_items' => 0,
                         'metadata' => [
-                            'organization_id' => $this->organizationToEdit->id,
-                            'organization_name' => $this->organizationToEdit->name,
+                            'organization_id' => $organization->id,
+                            'organization_name' => $organization->name,
                             'domains' => $domainList,
                             'action' => 'update',
                         ],
@@ -272,7 +275,7 @@ class OrganizationManager extends Component
                     // Dispatch the job to run in the background
                     \App\Jobs\SyncOrganizationDomainsJob::dispatch(
                         $syncLog->id,
-                        $this->organizationToEdit->id,
+                        $organization->id,
                         $domainList,
                         $this->syncUsers
                     );
@@ -284,11 +287,11 @@ class OrganizationManager extends Component
                     session()->flash('message', "Organization updated successfully. Domain sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
                 } else {
                     // User cleared all domains - detach all domains from this organization
-                    $this->organizationToEdit->domains()->detach();
+                    $organization->domains()->detach();
 
                     \Illuminate\Support\Facades\Log::info('All domains removed from organization', [
-                        'organization_id' => $this->organizationToEdit->id,
-                        'organization_name' => $this->organizationToEdit->name,
+                        'organization_id' => $organization->id,
+                        'organization_name' => $organization->name,
                         'removed_count' => count($currentDomains)
                     ]);
 
@@ -401,8 +404,8 @@ class OrganizationManager extends Component
 
     public function openManageUsersModal($id)
     {
-        // PERFORMANCE: Don't eager load users - only load organization metadata
-        $this->organizationToManage = Organization::findOrFail($id);
+        // PERFORMANCE: Don't eager load users - only store the ID
+        $this->organizationToManageId = $id;
         $this->userSearch = '';
 
         // PERFORMANCE: Don't load ALL user IDs into memory!
@@ -416,7 +419,7 @@ class OrganizationManager extends Component
     public function closeManageUsersModal()
     {
         $this->showManageUsersModal = false;
-        $this->organizationToManage = null;
+        $this->organizationToManageId = null;
         $this->userSearch = '';
         $this->selectedUsers = [];
         $this->userPage = 1;
@@ -443,9 +446,19 @@ class OrganizationManager extends Component
     // Instead, users are added/removed individually using attachUser/detachUser
 
     #[\Livewire\Attributes\Computed]
+    public function organizationToManage()
+    {
+        if (!$this->organizationToManageId) {
+            return null;
+        }
+
+        return Organization::findOrFail($this->organizationToManageId);
+    }
+
+    #[\Livewire\Attributes\Computed]
     public function filteredUsers()
     {
-        if (!$this->organizationToManage) {
+        if (!$this->organizationToManageId) {
             return collect();
         }
 
@@ -456,7 +469,7 @@ class OrganizationManager extends Component
 
         $query = \App\Models\User::query()
             ->with(['domain', 'organizations' => function ($query) {
-                $query->where('organizations.id', $this->organizationToManage->id)
+                $query->where('organizations.id', $this->organizationToManageId)
                     ->select('organizations.id', 'organizations.name')
                     ->withPivot('is_manual');
             }])
@@ -473,7 +486,7 @@ class OrganizationManager extends Component
     #[\Livewire\Attributes\Computed]
     public function totalUsersCount()
     {
-        if (!$this->organizationToManage) {
+        if (!$this->organizationToManageId) {
             return 0;
         }
 
@@ -501,11 +514,13 @@ class OrganizationManager extends Component
     #[\Livewire\Attributes\Computed]
     public function assignedUsers()
     {
-        if (!$this->organizationToManage) {
+        if (!$this->organizationToManageId) {
             return collect();
         }
 
-        $query = $this->organizationToManage->usersMany()
+        $organization = Organization::findOrFail($this->organizationToManageId);
+
+        $query = $organization->usersMany()
             ->with('domain')
             ->orderByRaw('CASE WHEN organization_user.is_manual = 1 THEN 0 ELSE 1 END')
             ->orderBy('fullname');
@@ -517,11 +532,12 @@ class OrganizationManager extends Component
     #[\Livewire\Attributes\Computed]
     public function totalAssignedUsers()
     {
-        if (!$this->organizationToManage) {
+        if (!$this->organizationToManageId) {
             return 0;
         }
 
-        return $this->organizationToManage->usersMany()->count();
+        $organization = Organization::findOrFail($this->organizationToManageId);
+        return $organization->usersMany()->count();
     }
 
     #[\Livewire\Attributes\Computed]
@@ -535,9 +551,11 @@ class OrganizationManager extends Component
     public function attachUser($userId, $isManual = true)
     {
         try {
+            $organization = Organization::findOrFail($this->organizationToManageId);
+
             // Check if user is already attached
             $exists = \Illuminate\Support\Facades\DB::table('organization_user')
-                ->where('organization_id', $this->organizationToManage->id)
+                ->where('organization_id', $organization->id)
                 ->where('user_id', $userId)
                 ->exists();
 
@@ -547,16 +565,13 @@ class OrganizationManager extends Component
             }
 
             // Attach user with is_manual flag
-            $this->organizationToManage->usersMany()->attach($userId, ['is_manual' => $isManual]);
-
-            // PERFORMANCE: Don't reload all users, just refresh the organization metadata
-            $this->organizationToManage = Organization::findOrFail($this->organizationToManage->id);
+            $organization->usersMany()->attach($userId, ['is_manual' => $isManual]);
 
             session()->flash('message', 'User added successfully.');
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to attach user', [
                 'error' => $e->getMessage(),
-                'organization_id' => $this->organizationToManage->id,
+                'organization_id' => $this->organizationToManageId,
                 'user_id' => $userId
             ]);
             session()->flash('error', 'Failed to add user: ' . $e->getMessage());
@@ -566,16 +581,14 @@ class OrganizationManager extends Component
     public function detachUser($userId)
     {
         try {
-            $this->organizationToManage->usersMany()->detach($userId);
-
-            // PERFORMANCE: Don't reload all users, just refresh the organization metadata
-            $this->organizationToManage = Organization::findOrFail($this->organizationToManage->id);
+            $organization = Organization::findOrFail($this->organizationToManageId);
+            $organization->usersMany()->detach($userId);
 
             session()->flash('message', 'User removed successfully.');
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to detach user', [
                 'error' => $e->getMessage(),
-                'organization_id' => $this->organizationToManage->id,
+                'organization_id' => $this->organizationToManageId,
                 'user_id' => $userId
             ]);
             session()->flash('error', 'Failed to remove user: ' . $e->getMessage());

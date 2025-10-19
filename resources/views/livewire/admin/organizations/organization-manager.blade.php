@@ -287,7 +287,7 @@
     @endif
 
     <!-- Manage Users Modal -->
-    @if($showManageUsersModal && $organizationToManage)
+    @if($showManageUsersModal && $organizationToManageId)
         @include('livewire.admin.organizations.partials.manage-users-modal')
     @endif
 
