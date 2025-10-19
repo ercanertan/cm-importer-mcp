@@ -20,7 +20,8 @@
       "Bash(curl:*)",
       "mcp__laravel-boost__get-absolute-url",
       "Bash(git mv:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(vendor/bin/pest:*)"
     ],
     "deny": [],
     "ask": []
