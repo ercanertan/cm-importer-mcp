@@ -17,10 +17,15 @@ class OrganizationManager extends Component
     public $organizationToDelete = null;
 
     public $showCreateModal = false;
+    public $showAdvancedCreateModal = false;
     public $showEditModal = false;
+    public $showAdvancedEditModal = false;
 
     #[\Livewire\Attributes\Locked]
     public $organizationToEdit = null;
+
+    #[\Livewire\Attributes\Locked]
+    public $organizationToEditAdvanced = null;
 
     public $showManageUsersModal = false;
 
@@ -47,6 +52,10 @@ class OrganizationManager extends Component
     public $is_active = true;
     public $domains = '';
     public $syncUsers = true;
+
+    // Advanced create fields
+    public $conditions = [];
+    public $conditionLogic = 'AND'; // AND or OR
 
     protected $queryString = ['search'];
 
@@ -116,6 +125,224 @@ class OrganizationManager extends Component
         $this->is_active = true;
         $this->syncUsers = true;
         $this->showCreateModal = true;
+    }
+
+    public function openAdvancedCreateModal()
+    {
+        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
+        $this->is_active = true;
+        $this->conditionLogic = 'AND';
+        $this->conditions = []; // Start with empty conditions
+        $this->showAdvancedCreateModal = true;
+    }
+
+    public function closeAdvancedCreateModal()
+    {
+        $this->showAdvancedCreateModal = false;
+        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
+        $this->resetValidation();
+    }
+
+    public function openAdvancedEditModal($id)
+    {
+        $organization = Organization::with('domains')->findOrFail($id);
+
+        if (!$organization->hasConditionalRules()) {
+            session()->flash('error', 'This organization was not created with conditional rules.');
+            return;
+        }
+
+        $this->name = $organization->name;
+        $this->description = $organization->description;
+        $this->is_active = $organization->is_active;
+        $this->domains = $organization->domains->pluck('domain')->implode(', ');
+        $this->conditionLogic = $organization->getConditionLogic();
+        $this->conditions = $organization->getConditions();
+
+        // Store organization WITHOUT relationships to avoid serialization issues
+        $organization->unsetRelation('domains');
+        $this->organizationToEditAdvanced = $organization;
+
+        $this->showAdvancedEditModal = true;
+    }
+
+    public function closeAdvancedEditModal()
+    {
+        $this->showAdvancedEditModal = false;
+        $this->organizationToEditAdvanced = null;
+        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
+        $this->resetValidation();
+    }
+
+    public function updateAdvancedOrganization()
+    {
+        $this->validate([
+            'name' => 'required|string|max:255|unique:organizations,name,' . $this->organizationToEditAdvanced->id,
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+            'domains' => 'required|string',
+            'conditionLogic' => 'required|in:AND,OR',
+            'conditions' => 'required|array|min:1',
+            'conditions.*.field_id' => 'required|exists:cm_custom_fields,id',
+            'conditions.*.operator' => 'required|in:equals,not_equals,contains,not_contains,starts_with,ends_with,is_empty,is_not_empty',
+            'conditions.*.value' => 'nullable|string',
+        ]);
+
+        try {
+            // Reload organization to avoid serialization issues
+            $organization = Organization::findOrFail($this->organizationToEditAdvanced->id);
+
+            $organization->update([
+                'name' => $this->name,
+                'description' => $this->description,
+                'is_active' => $this->is_active,
+                'conditional_rules' => [
+                    'logic' => $this->conditionLogic,
+                    'conditions' => $this->conditions,
+                ],
+            ]);
+
+            // Parse domains from comma-separated string
+            $domainList = array_map('trim', explode(',', $this->domains));
+            $domainList = array_filter($domainList);
+
+            // Create sync log entry for re-syncing users with updated conditions
+            $syncLog = \App\Models\SyncLog::create([
+                'type' => 'sync_organization_conditional',
+                'status' => 'pending',
+                'user_id' => auth()->id(),
+                'total_items' => 0,
+                'processed_items' => 0,
+                'successful_items' => 0,
+                'failed_items' => 0,
+                'metadata' => [
+                    'organization_id' => $organization->id,
+                    'organization_name' => $organization->name,
+                    'domains' => $domainList,
+                    'conditions' => $this->conditions,
+                    'condition_logic' => $this->conditionLogic,
+                    'action' => 'update',
+                ],
+            ]);
+
+            // Dispatch the job to re-sync users based on updated conditions
+            \App\Jobs\SyncOrganizationConditionalJob::dispatch(
+                $syncLog->id,
+                $organization->id,
+                $domainList,
+                $this->conditions,
+                $this->conditionLogic
+            );
+
+            // Start polling for status updates
+            $this->activeSyncLogId = $syncLog->id;
+            $this->pollingInterval = 2000; // Poll every 2 seconds
+
+            session()->flash('message', "Advanced organization updated successfully. Conditional user re-sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
+
+            $this->closeAdvancedEditModal();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to update advanced organization', [
+                'error' => $e->getMessage(),
+                'organization_id' => $this->organizationToEditAdvanced->id
+            ]);
+            session()->flash('error', 'Failed to update advanced organization: ' . $e->getMessage());
+        }
+    }
+
+    public function addCondition()
+    {
+        $this->conditions[] = [
+            'field_id' => null,
+            'operator' => 'equals',
+            'value' => ''
+        ];
+    }
+
+    public function removeCondition($index)
+    {
+        unset($this->conditions[$index]);
+        $this->conditions = array_values($this->conditions); // Re-index array
+    }
+
+    #[\Livewire\Attributes\Computed]
+    public function availableCustomFields()
+    {
+        return \App\Models\CmCustomField::active()
+            ->orderBy('field_name')
+            ->get();
+    }
+
+    public function createAdvancedOrganization()
+    {
+        $this->validate([
+            'name' => 'required|string|max:255|unique:organizations,name',
+            'description' => 'nullable|string',
+            'is_active' => 'boolean',
+            'domains' => 'required|string',
+            'conditionLogic' => 'required|in:AND,OR',
+            'conditions' => 'required|array|min:1',
+            'conditions.*.field_id' => 'required|exists:cm_custom_fields,id',
+            'conditions.*.operator' => 'required|in:equals,not_equals,contains,not_contains,starts_with,ends_with,is_empty,is_not_empty',
+            'conditions.*.value' => 'nullable|string',
+        ]);
+
+        try {
+            $organization = Organization::create([
+                'name' => $this->name,
+                'description' => $this->description,
+                'is_active' => $this->is_active,
+                'conditional_rules' => [
+                    'logic' => $this->conditionLogic,
+                    'conditions' => $this->conditions,
+                ],
+            ]);
+
+            // Parse domains from comma-separated string
+            $domainList = array_map('trim', explode(',', $this->domains));
+            $domainList = array_filter($domainList);
+
+            // Create sync log entry
+            $syncLog = \App\Models\SyncLog::create([
+                'type' => 'sync_organization_conditional',
+                'status' => 'pending',
+                'user_id' => auth()->id(),
+                'total_items' => 0,
+                'processed_items' => 0,
+                'successful_items' => 0,
+                'failed_items' => 0,
+                'metadata' => [
+                    'organization_id' => $organization->id,
+                    'organization_name' => $organization->name,
+                    'domains' => $domainList,
+                    'conditions' => $this->conditions,
+                    'condition_logic' => $this->conditionLogic,
+                ],
+            ]);
+
+            // Dispatch the job to run in the background
+            \App\Jobs\SyncOrganizationConditionalJob::dispatch(
+                $syncLog->id,
+                $organization->id,
+                $domainList,
+                $this->conditions,
+                $this->conditionLogic
+            );
+
+            // Start polling for status updates
+            $this->activeSyncLogId = $syncLog->id;
+            $this->pollingInterval = 2000; // Poll every 2 seconds
+
+            session()->flash('message', "Advanced organization created successfully. Conditional user sync started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
+
+            $this->closeAdvancedCreateModal();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to create advanced organization', [
+                'error' => $e->getMessage(),
+                'name' => $this->name
+            ]);
+            session()->flash('error', 'Failed to create advanced organization: ' . $e->getMessage());
+        }
     }
 
     public function closeCreateModal()

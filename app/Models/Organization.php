@@ -15,10 +15,12 @@ class Organization extends Model
         'name',
         'description',
         'is_active',
+        'conditional_rules',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'conditional_rules' => 'array',
     ];
 
     /**
@@ -62,5 +64,29 @@ class Organization extends Model
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
+    }
+
+    /**
+     * Check if this organization has conditional rules
+     */
+    public function hasConditionalRules(): bool
+    {
+        return !empty($this->conditional_rules);
+    }
+
+    /**
+     * Get the condition logic (AND/OR)
+     */
+    public function getConditionLogic(): ?string
+    {
+        return $this->conditional_rules['logic'] ?? null;
+    }
+
+    /**
+     * Get the conditions array
+     */
+    public function getConditions(): array
+    {
+        return $this->conditional_rules['conditions'] ?? [];
     }
 }
