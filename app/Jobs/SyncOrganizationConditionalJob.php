@@ -59,9 +59,16 @@ class SyncOrganizationConditionalJob implements ShouldQueue
             // Step 3: Assign users to organization
             $this->assignUsers($organization, $matchingUserIds, $syncLog);
 
+            // Step 4: Remove users who no longer meet conditions (auto-assigned only)
+            $removedCount = $this->removeDisqualifiedUsers($organization, $domainIds);
+
             $syncLog->update([
                 'status' => 'completed',
                 'completed_at' => now(),
+                'metadata' => [
+                    'users_added' => $syncLog->successful_items,
+                    'users_removed' => $removedCount,
+                ],
             ]);
 
             Log::info('Conditional organization sync completed', [
@@ -244,5 +251,156 @@ class SyncOrganizationConditionalJob implements ShouldQueue
             'successful_items' => $successful,
             'failed_items' => $failed,
         ]);
+    }
+
+    /**
+     * Remove users who no longer meet the conditional rules
+     * CRITICAL: Only removes AUTO-ASSIGNED users (is_manual = false)
+     * NEVER touches manual assignments (is_manual = true)
+     */
+    protected function removeDisqualifiedUsers(Organization $organization, array $domainIds): int
+    {
+        // Get all AUTO-ASSIGNED users in this organization from the specified domains
+        $autoAssignedUsers = DB::table('organization_user')
+            ->join('users', 'users.id', '=', 'organization_user.user_id')
+            ->where('organization_user.organization_id', $organization->id)
+            ->where('organization_user.is_manual', false) // CRITICAL: Only auto-assigned
+            ->whereIn('users.domain_id', $domainIds)
+            ->select('users.id as user_id')
+            ->pluck('user_id')
+            ->toArray();
+
+        if (empty($autoAssignedUsers)) {
+            return 0;
+        }
+
+        // Load users with their custom field values
+        $users = User::with('customFieldValues')
+            ->whereIn('id', $autoAssignedUsers)
+            ->get();
+
+        $usersToRemove = [];
+
+        foreach ($users as $user) {
+            // Check if user still meets conditions
+            $meetsConditions = $this->userMeetsConditions($user);
+
+            if (!$meetsConditions) {
+                $usersToRemove[] = $user->id;
+
+                Log::info('Removing user from conditional organization (no longer qualifies)', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                    'organization_id' => $organization->id,
+                    'organization_name' => $organization->name,
+                    'is_manual' => false,
+                ]);
+            }
+        }
+
+        if (empty($usersToRemove)) {
+            return 0;
+        }
+
+        // Remove disqualified users - CRITICAL: Only if is_manual = false
+        DB::table('organization_user')
+            ->where('organization_id', $organization->id)
+            ->whereIn('user_id', $usersToRemove)
+            ->where('is_manual', false) // CRITICAL SAFETY CHECK
+            ->delete();
+
+        // Assign removed users to Default Organization
+        $defaultOrg = Organization::firstOrCreate(
+            ['name' => 'Default Organization'],
+            ['is_active' => true]
+        );
+
+        $now = now()->format('Y-m-d H:i:s');
+        foreach ($usersToRemove as $userId) {
+            $existsInDefault = DB::table('organization_user')
+                ->where('user_id', $userId)
+                ->where('organization_id', $defaultOrg->id)
+                ->exists();
+
+            if (!$existsInDefault) {
+                DB::table('organization_user')->insert([
+                    'user_id' => $userId,
+                    'organization_id' => $defaultOrg->id,
+                    'is_manual' => false,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+
+                Log::info('User reassigned to Default Organization', [
+                    'user_id' => $userId,
+                    'from_organization_id' => $organization->id,
+                ]);
+            }
+        }
+
+        return count($usersToRemove);
+    }
+
+    /**
+     * Check if user meets the conditional rules
+     */
+    protected function userMeetsConditions(User $user): bool
+    {
+        $userCustomFields = $user->customFieldValues()
+            ->pluck('value', 'cm_custom_field_id')
+            ->toArray();
+
+        if ($this->conditionLogic === 'AND') {
+            foreach ($this->conditions as $condition) {
+                if (!$this->evaluateCondition($userCustomFields, $condition)) {
+                    return false;
+                }
+            }
+            return true;
+        } else {
+            foreach ($this->conditions as $condition) {
+                if ($this->evaluateCondition($userCustomFields, $condition)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Evaluate a single condition
+     */
+    protected function evaluateCondition(array $userCustomFields, array $condition): bool
+    {
+        $fieldId = $condition['field_id'] ?? null;
+        $operator = $condition['operator'] ?? 'equals';
+        $expectedValue = $condition['value'] ?? '';
+
+        if (!$fieldId) {
+            return false;
+        }
+
+        $actualValue = $userCustomFields[$fieldId] ?? null;
+
+        switch ($operator) {
+            case 'equals':
+                return $actualValue === $expectedValue;
+            case 'not_equals':
+                return $actualValue !== $expectedValue;
+            case 'contains':
+                return $actualValue !== null && str_contains(strtolower($actualValue), strtolower($expectedValue));
+            case 'not_contains':
+                return $actualValue === null || !str_contains(strtolower($actualValue), strtolower($expectedValue));
+            case 'starts_with':
+                return $actualValue !== null && str_starts_with(strtolower($actualValue), strtolower($expectedValue));
+            case 'ends_with':
+                return $actualValue !== null && str_ends_with(strtolower($actualValue), strtolower($expectedValue));
+            case 'is_empty':
+                return empty($actualValue);
+            case 'is_not_empty':
+                return !empty($actualValue);
+            default:
+                return false;
+        }
     }
 }

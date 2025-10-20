@@ -118,10 +118,19 @@ class SyncDomainOrganizationsJob implements ShouldQueue
             foreach ($users as $user) {
                 try {
                     // Get manually assigned organization IDs (preserve them)
+                    // CRITICAL: Manual assignments are NEVER removed or modified
                     $manualOrgIds = $user->organizations()
                         ->wherePivot('is_manual', true)
                         ->pluck('organizations.id')
                         ->toArray();
+
+                    if (!empty($manualOrgIds)) {
+                        Log::debug('Preserving manual organization assignments', [
+                            'user_id' => $user->id,
+                            'email' => $user->email,
+                            'manual_org_ids' => $manualOrgIds,
+                        ]);
+                    }
 
                     // Evaluate which domain-based organizations the user qualifies for
                     $qualifiedOrgIds = [];
