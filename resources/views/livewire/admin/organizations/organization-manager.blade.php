@@ -302,7 +302,7 @@
                                                     <!-- Operator -->
                                                     <div>
                                                         <label class="block text-xs font-semibold text-gray-700 mb-1">Operator</label>
-                                                        <select wire:model="conditions.{{ $index }}.operator"
+                                                        <select wire:model.live="conditions.{{ $index }}.operator"
                                                                 class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5">
                                                             <option value="equals">Equals</option>
                                                             <option value="not_equals">Not Equals</option>
@@ -323,7 +323,7 @@
                                                         <label class="block text-xs font-semibold text-gray-700 mb-1">Value</label>
                                                         <input type="text" wire:model="conditions.{{ $index }}.value"
                                                                placeholder="Value to compare..."
-                                                               class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5"
+                                                               class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5 disabled:bg-gray-100 disabled:cursor-not-allowed"
                                                                @if(in_array($conditions[$index]['operator'] ?? '', ['is_empty', 'is_not_empty'])) disabled @endif>
                                                         @error('conditions.' . $index . '.value')
                                                             <span class="text-red-600 text-xs">{{ $message }}</span>
@@ -547,7 +547,7 @@
                                                     <!-- Operator -->
                                                     <div>
                                                         <label class="block text-xs font-semibold text-gray-700 mb-1">Operator</label>
-                                                        <select wire:model="conditions.{{ $index }}.operator"
+                                                        <select wire:model.live="conditions.{{ $index }}.operator"
                                                                 class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5">
                                                             <option value="equals">Equals</option>
                                                             <option value="not_equals">Not Equals</option>
@@ -568,7 +568,7 @@
                                                         <label class="block text-xs font-semibold text-gray-700 mb-1">Value</label>
                                                         <input type="text" wire:model="conditions.{{ $index }}.value"
                                                                placeholder="Value to compare..."
-                                                               class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5"
+                                                               class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5 disabled:bg-gray-100 disabled:cursor-not-allowed"
                                                                @if(in_array($conditions[$index]['operator'] ?? '', ['is_empty', 'is_not_empty'])) disabled @endif>
                                                         @error('conditions.' . $index . '.value')
                                                             <span class="text-red-600 text-xs">{{ $message }}</span>
