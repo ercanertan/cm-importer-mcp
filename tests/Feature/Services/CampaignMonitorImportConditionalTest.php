@@ -337,3 +337,196 @@ test('tests all supported operators', function () {
 
     @unlink($filePath);
 });
+
+test('proactively discovers and assigns users to ALL qualifying conditional organizations', function () {
+    // This tests the NEW feature: evaluateAllConditionalOrganizations()
+    // Scenario: User's domain matches multiple orgs, system should find ALL conditional orgs they qualify for
+
+    // Create custom fields
+    $departmentField = CmCustomField::factory()->create([
+        'field_key' => 'Department',
+        'field_name' => 'Department',
+        'data_type' => 'text',
+        'is_active' => true,
+    ]);
+
+    $levelField = CmCustomField::factory()->create([
+        'field_key' => 'Level',
+        'field_name' => 'Level',
+        'data_type' => 'text',
+        'is_active' => true,
+    ]);
+
+    // Create domain (shared by multiple organizations)
+    $domain = Domain::factory()->create(['domain' => 'company.com']);
+
+    // Organization 1: Regular org (no conditional rules) associated with domain
+    $regularOrg = Organization::factory()->create([
+        'name' => 'Company General',
+        'conditional_rules' => null,
+    ]);
+    $regularOrg->domains()->attach($domain->id);
+
+    // Organization 2: Conditional org for Engineering department
+    $engineeringOrg = Organization::factory()->create([
+        'name' => 'Engineering Team',
+        'conditional_rules' => [
+            'logic' => 'AND',
+            'conditions' => [
+                [
+                    'field_id' => $departmentField->id,
+                    'operator' => 'equals',
+                    'value' => 'Engineering',
+                ],
+            ],
+        ],
+    ]);
+    $engineeringOrg->domains()->attach($domain->id);
+
+    // Organization 3: Conditional org for Senior level
+    $seniorOrg = Organization::factory()->create([
+        'name' => 'Senior Staff',
+        'conditional_rules' => [
+            'logic' => 'AND',
+            'conditions' => [
+                [
+                    'field_id' => $levelField->id,
+                    'operator' => 'equals',
+                    'value' => 'Senior',
+                ],
+            ],
+        ],
+    ]);
+    $seniorOrg->domains()->attach($domain->id);
+
+    // Organization 4: Conditional org for Senior Engineers (both conditions)
+    $seniorEngineers = Organization::factory()->create([
+        'name' => 'Senior Engineers',
+        'conditional_rules' => [
+            'logic' => 'AND',
+            'conditions' => [
+                [
+                    'field_id' => $departmentField->id,
+                    'operator' => 'equals',
+                    'value' => 'Engineering',
+                ],
+                [
+                    'field_id' => $levelField->id,
+                    'operator' => 'equals',
+                    'value' => 'Senior',
+                ],
+            ],
+        ],
+    ]);
+    $seniorEngineers->domains()->attach($domain->id);
+
+    // Create CSV with various users
+    $csv = "Email,Department,Level\n";
+    $csv .= "senior-eng@company.com,Engineering,Senior\n"; // Should match Senior Engineers
+    $csv .= "junior-eng@company.com,Engineering,Junior\n"; // Should match Engineering Team
+    $csv .= "senior-sales@company.com,Sales,Senior\n"; // Should match Senior Staff
+    $csv .= "junior-sales@company.com,Sales,Junior\n"; // Should match nothing (fall to default)
+
+    $filePath = storage_path('app/test-proactive-discovery.csv');
+    file_put_contents($filePath, $csv);
+
+    // Import
+    $service = new CampaignMonitorImportService();
+    $result = $service->importFromCsv($filePath);
+
+    expect($result['success'])->toBeTrue();
+
+    // User 1: Senior Engineer - should be assigned to Senior Engineers org (most specific match)
+    $seniorEng = User::where('email', 'senior-eng@company.com')->first();
+    expect($seniorEng)->not->toBeNull();
+    expect($seniorEng->organizations->pluck('id')->toArray())->toContain($seniorEngineers->id);
+
+    // Verify custom fields were saved correctly
+    expect($seniorEng->customFieldValues()->where('cm_custom_field_id', $departmentField->id)->first()->value)
+        ->toBe('Engineering');
+    expect($seniorEng->customFieldValues()->where('cm_custom_field_id', $levelField->id)->first()->value)
+        ->toBe('Senior');
+
+    // User 2: Junior Engineer - should be in Engineering Team
+    $juniorEng = User::where('email', 'junior-eng@company.com')->first();
+    expect($juniorEng)->not->toBeNull();
+    expect($juniorEng->organizations->pluck('id')->toArray())->toContain($engineeringOrg->id);
+
+    // User 3: Senior Sales - should be in Senior Staff
+    $seniorSales = User::where('email', 'senior-sales@company.com')->first();
+    expect($seniorSales)->not->toBeNull();
+    expect($seniorSales->organizations->pluck('id')->toArray())->toContain($seniorOrg->id);
+
+    // User 4: Junior Sales - should stay in Company General (no matching conditional rules)
+    $juniorSales = User::where('email', 'junior-sales@company.com')->first();
+    expect($juniorSales)->not->toBeNull();
+
+    // Junior Sales should be in Company General (the base org for the domain, since no conditional rules match)
+    expect($juniorSales->organizations->pluck('id')->toArray())->toContain($regularOrg->id);
+
+    // Verify junior sales is NOT in any conditional org
+    expect($juniorSales->organizations->pluck('id')->toArray())->not->toContain($engineeringOrg->id);
+    expect($juniorSales->organizations->pluck('id')->toArray())->not->toContain($seniorOrg->id);
+    expect($juniorSales->organizations->pluck('id')->toArray())->not->toContain($seniorEngineers->id);
+
+    @unlink($filePath);
+});
+
+test('proactive discovery respects domain boundaries for conditional orgs', function () {
+    // This test verifies that users are NOT assigned to conditional orgs if their domain doesn't match
+    // even if they meet all the conditional rules
+
+    $departmentField = CmCustomField::factory()->create([
+        'field_key' => 'Department',
+        'field_name' => 'Department',
+        'data_type' => 'text',
+        'is_active' => true,
+    ]);
+
+    // Domain with associated conditional org
+    $domain1 = Domain::factory()->create(['domain' => 'companyA.com']);
+
+    // Domain with NO associated organizations
+    $domain2 = Domain::factory()->create(['domain' => 'companyB.com']);
+
+    // Conditional org for Engineering, ONLY associated with domain1
+    $engineeringOrg = Organization::factory()->create([
+        'name' => 'Engineering Team',
+        'conditional_rules' => [
+            'logic' => 'AND',
+            'conditions' => [
+                [
+                    'field_id' => $departmentField->id,
+                    'operator' => 'equals',
+                    'value' => 'Engineering',
+                ],
+            ],
+        ],
+    ]);
+    $engineeringOrg->domains()->attach($domain1->id); // Only domain1
+
+    // Create CSV with engineers from both domains
+    $csv = "Email,Department\n";
+    $csv .= "jane@companyB.com,Engineering\n"; // Domain does NOT match Engineering Team
+
+    $filePath = storage_path('app/test-domain-boundary.csv');
+    file_put_contents($filePath, $csv);
+
+    $service = new CampaignMonitorImportService();
+    $result = $service->importFromCsv($filePath);
+
+    expect($result['success'])->toBeTrue();
+
+    // Jane from companyB.com should NOT be in Engineering Team (domain doesn't match)
+    // even though she has Department=Engineering
+    $jane = User::where('email', 'jane@companyB.com')->first();
+    expect($jane)->not->toBeNull();
+    expect($jane->organizations->pluck('id')->toArray())->not->toContain($engineeringOrg->id);
+
+    // Jane should be in Default Organization since her domain has no organizations
+    $defaultOrg = Organization::where('name', 'Default Organization')->first();
+    expect($defaultOrg)->not->toBeNull();
+    expect($jane->organizations->pluck('id')->toArray())->toContain($defaultOrg->id);
+
+    @unlink($filePath);
+});

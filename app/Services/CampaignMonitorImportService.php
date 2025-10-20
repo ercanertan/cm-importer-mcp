@@ -324,6 +324,12 @@ class CampaignMonitorImportService
                 $userOrganizationMap = $this->evaluateConditionalRules($userOrganizationMap, $batch, $domainMap);
             }
 
+            // Proactively check ALL conditional organizations to discover additional assignments
+            // This finds conditional orgs that users qualify for, even if not initially mapped by domain
+            if (!empty($userOrganizationMap)) {
+                $userOrganizationMap = $this->evaluateAllConditionalOrganizations($userOrganizationMap, $batch);
+            }
+
             // Bulk sync domain-organization relationships
             // Note: processedDomainIds only contains domains that need to be synced to Default Organization
             if (!empty($processedDomainIds) && $defaultOrganization) {
@@ -1475,6 +1481,87 @@ class CampaignMonitorImportService
         return $filteredMap;
     }
 
+    /**
+     * Proactively evaluate users against ALL conditional organizations
+     * This discovers new conditional organization assignments for imported users
+     *
+     * @param array $userOrganizationMap Current email => organization_id mappings
+     * @param array $batch Original batch data with custom field values
+     * @return array Updated user-organization map with additional conditional org assignments
+     */
+    protected function evaluateAllConditionalOrganizations(array $userOrganizationMap, array $batch): array
+    {
+        // Get ALL conditional organizations with their associated domains
+        $conditionalOrgs = Organization::whereNotNull('conditional_rules')
+            ->with(['domains'])
+            ->get()
+            ->filter(function ($org) {
+                return !empty($org->conditional_rules) && !empty($org->conditional_rules['conditions']);
+            });
+
+        if ($conditionalOrgs->isEmpty()) {
+            return $userOrganizationMap;
+        }
+
+        // Get field key to ID mapping for evaluation
+        $fieldKeyToIdMap = CmCustomField::pluck('id', 'field_key')->toArray();
+
+        // Build email => domain map for quick lookup
+        $emailToDomainMap = [];
+        foreach ($batch as $row) {
+            $email = $row['email'];
+            $domainName = Domain::extractFromEmail($email);
+            if ($domainName) {
+                $emailToDomainMap[$email] = $domainName;
+            }
+        }
+
+        // For each conditional organization, check if users qualify
+        foreach ($conditionalOrgs as $org) {
+            // Skip if organization has no associated domains
+            if ($org->domains->isEmpty()) {
+                continue;
+            }
+
+            // Get domain names for this organization
+            $orgDomainNames = $org->domains->pluck('domain')->toArray();
+
+            // For each user in the batch, check if they belong to this org's domains
+            foreach ($batch as $rowData) {
+                $email = $rowData['email'];
+                $userDomain = $emailToDomainMap[$email] ?? null;
+
+                // Skip if user's domain doesn't match any of this org's domains
+                if (!$userDomain || !in_array($userDomain, $orgDomainNames)) {
+                    continue;
+                }
+
+                // User is from a matching domain - evaluate conditional rules
+                $meetsConditions = $this->conditionalEvaluator->evaluateRowData(
+                    $rowData,
+                    $fieldKeyToIdMap,
+                    $org->conditional_rules
+                );
+
+                if ($meetsConditions) {
+                    // User qualifies! Add to organization map
+                    // NOTE: This might override a previous assignment, which is intentional
+                    // Conditional orgs take precedence over default org
+                    $userOrganizationMap[$email] = $org->id;
+
+                    Log::info('User auto-assigned to conditional organization during import', [
+                        'email' => $email,
+                        'organization_id' => $org->id,
+                        'organization_name' => $org->name,
+                        'domain' => $userDomain,
+                    ]);
+                }
+            }
+        }
+
+        return $userOrganizationMap;
+    }
+
     protected function ensureCustomFieldsExist($fieldKeys)
     {
         foreach ($fieldKeys as $fieldKey) {
@@ -1795,6 +1882,7 @@ class CampaignMonitorImportService
                 $pivotData[] = [
                     'user_id' => $pair['user_id'],
                     'organization_id' => $pair['organization_id'],
+                    'is_manual' => false, // Auto-assigned during import
                     'created_at' => $now,
                     'updated_at' => $now
                 ];

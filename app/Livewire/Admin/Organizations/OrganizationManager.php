@@ -65,6 +65,31 @@ class OrganizationManager extends Component
     }
 
     /**
+     * Livewire lifecycle hook to ensure conditions is always a plain array
+     * This prevents the "toJSON method not found" serialization error
+     */
+    public function updatingConditions($value)
+    {
+        // Normalize to plain array if needed
+        if (!is_array($value)) {
+            $value = [];
+        }
+        return json_decode(json_encode($value), true);
+    }
+
+    /**
+     * Livewire dehydrate hook - called before sending component state to frontend
+     * Ensures conditions is always a plain array to prevent serialization errors
+     */
+    public function dehydrate()
+    {
+        // Ensure conditions is always a plain array
+        if (!empty($this->conditions)) {
+            $this->conditions = json_decode(json_encode($this->conditions), true);
+        }
+    }
+
+    /**
      * Check the status of active sync job and stop polling when complete
      */
     public function checkSyncStatus()
@@ -132,7 +157,10 @@ class OrganizationManager extends Component
         $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
         $this->is_active = true;
         $this->conditionLogic = 'AND';
-        $this->conditions = []; // Start with empty conditions
+
+        // Ensure conditions is a plain array
+        $this->conditions = json_decode(json_encode([]), true); // Start with empty conditions
+
         $this->showAdvancedCreateModal = true;
     }
 
@@ -157,11 +185,13 @@ class OrganizationManager extends Component
         $this->is_active = $organization->is_active;
         $this->domains = $organization->domains->pluck('domain')->implode(', ');
         $this->conditionLogic = $organization->getConditionLogic();
-        $this->conditions = $organization->getConditions();
 
-        // Store organization WITHOUT relationships to avoid serialization issues
-        $organization->unsetRelation('domains');
-        $this->organizationToEditAdvanced = $organization;
+        // Fix: Ensure conditions is a plain array to avoid Livewire serialization errors
+        // Convert to JSON and back to remove any stdClass objects or other non-serializable data
+        $this->conditions = json_decode(json_encode($organization->getConditions()), true);
+
+        // Store only the ID to avoid serialization issues with JSON columns
+        $this->organizationToEditAdvanced = $organization->only(['id', 'name']);
 
         $this->showAdvancedEditModal = true;
     }
@@ -176,8 +206,10 @@ class OrganizationManager extends Component
 
     public function updateAdvancedOrganization()
     {
+        $orgId = is_array($this->organizationToEditAdvanced) ? $this->organizationToEditAdvanced['id'] : $this->organizationToEditAdvanced->id;
+
         $this->validate([
-            'name' => 'required|string|max:255|unique:organizations,name,' . $this->organizationToEditAdvanced->id,
+            'name' => 'required|string|max:255|unique:organizations,name,' . $orgId,
             'description' => 'nullable|string',
             'is_active' => 'boolean',
             'domains' => 'required|string',
@@ -190,7 +222,7 @@ class OrganizationManager extends Component
 
         try {
             // Reload organization to avoid serialization issues
-            $organization = Organization::findOrFail($this->organizationToEditAdvanced->id);
+            $organization = Organization::findOrFail($orgId);
 
             $organization->update([
                 'name' => $this->name,
@@ -244,7 +276,7 @@ class OrganizationManager extends Component
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to update advanced organization', [
                 'error' => $e->getMessage(),
-                'organization_id' => $this->organizationToEditAdvanced->id
+                'organization_id' => $orgId
             ]);
             session()->flash('error', 'Failed to update advanced organization: ' . $e->getMessage());
         }
@@ -257,12 +289,18 @@ class OrganizationManager extends Component
             'operator' => 'equals',
             'value' => ''
         ];
+
+        // Ensure conditions stays as a plain array
+        $this->conditions = json_decode(json_encode($this->conditions), true);
     }
 
     public function removeCondition($index)
     {
         unset($this->conditions[$index]);
         $this->conditions = array_values($this->conditions); // Re-index array
+
+        // Ensure conditions stays as a plain array
+        $this->conditions = json_decode(json_encode($this->conditions), true);
     }
 
     #[\Livewire\Attributes\Computed]
@@ -429,9 +467,8 @@ class OrganizationManager extends Component
         $this->domains = $organization->domains->pluck('domain')->implode(', ');
         $this->syncUsers = true; // Default to true
 
-        // Store organization WITHOUT relationships to avoid serialization issues
-        $organization->unsetRelation('domains');
-        $this->organizationToEdit = $organization;
+        // Store only the ID to avoid serialization issues with JSON columns
+        $this->organizationToEdit = $organization->only(['id', 'name']);
 
         $this->showEditModal = true;
     }
@@ -446,8 +483,10 @@ class OrganizationManager extends Component
 
     public function updateOrganization()
     {
+        $orgId = is_array($this->organizationToEdit) ? $this->organizationToEdit['id'] : $this->organizationToEdit->id;
+
         $this->validate([
-            'name' => 'required|string|max:255|unique:organizations,name,' . $this->organizationToEdit->id,
+            'name' => 'required|string|max:255|unique:organizations,name,' . $orgId,
             'description' => 'nullable|string',
             'is_active' => 'boolean',
             'domains' => 'nullable|string',
@@ -456,7 +495,7 @@ class OrganizationManager extends Component
 
         try {
             // Reload organization with relationships to avoid serialization issues
-            $organization = Organization::with('domains')->findOrFail($this->organizationToEdit->id);
+            $organization = Organization::with('domains')->findOrFail($orgId);
 
             $organization->update([
                 'name' => $this->name,
@@ -532,7 +571,7 @@ class OrganizationManager extends Component
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to update organization', [
                 'error' => $e->getMessage(),
-                'organization_id' => $this->organizationToEdit->id
+                'organization_id' => $orgId
             ]);
             session()->flash('error', 'Failed to update organization: ' . $e->getMessage());
         }
@@ -540,7 +579,9 @@ class OrganizationManager extends Component
 
     public function confirmDelete($id)
     {
-        $this->organizationToDelete = Organization::findOrFail($id);
+        $organization = Organization::findOrFail($id);
+        // Store only the ID and name to avoid serialization issues with JSON columns
+        $this->organizationToDelete = $organization->only(['id', 'name']);
         $this->showDeleteModal = true;
     }
 
@@ -554,8 +595,8 @@ class OrganizationManager extends Component
     {
         if ($this->organizationToDelete) {
             try {
-                $organizationName = $this->organizationToDelete->name;
-                $organizationId = $this->organizationToDelete->id;
+                $organizationName = is_array($this->organizationToDelete) ? $this->organizationToDelete['name'] : $this->organizationToDelete->name;
+                $organizationId = is_array($this->organizationToDelete) ? $this->organizationToDelete['id'] : $this->organizationToDelete->id;
 
                 // Find "Default Organization" for fallback
                 $defaultOrganization = Organization::where('name', 'Default Organization')->first();
@@ -603,7 +644,7 @@ class OrganizationManager extends Component
                 }
 
                 // Delete the organization immediately (users will be moved in background)
-                $this->organizationToDelete->delete();
+                Organization::findOrFail($organizationId)->delete();
 
                 if (isset($syncLog)) {
                     session()->flash('message', "Organization '{$organizationName}' deleted. User migration started in the background (Sync Log ID: #{$syncLog->id}). <a href='" . route('admin.sync-logs.index') . "' class='underline font-bold'>View Progress</a>");
@@ -615,7 +656,7 @@ class OrganizationManager extends Component
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::error('Failed to delete organization', [
                     'error' => $e->getMessage(),
-                    'organization_id' => $this->organizationToDelete->id
+                    'organization_id' => $organizationId ?? null
                 ]);
                 session()->flash('error', 'Failed to delete organization: ' . $e->getMessage());
             }

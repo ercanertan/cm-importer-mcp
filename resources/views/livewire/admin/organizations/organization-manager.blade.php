@@ -84,7 +84,7 @@
                                         </button>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                        @if($organization->conditional_rules)
+                                        @if($organization->hasConditionalRules())
                                             <button wire:click="openAdvancedEditModal({{ $organization->id }})"
                                                     class="text-purple-700 hover:text-purple-900 font-semibold mr-4">
                                                 Edit Advanced
@@ -628,7 +628,7 @@
                                 <h3 class="text-lg leading-6 font-medium text-gray-900">Delete Organization</h3>
                                 <div class="mt-2">
                                     <p class="text-sm text-gray-500">
-                                        Are you sure you want to delete "{{ $organizationToDelete->name }}"? This action cannot be undone.
+                                        Are you sure you want to delete "{{ is_array($organizationToDelete) ? $organizationToDelete['name'] : $organizationToDelete->name }}"? This action cannot be undone.
                                     </p>
                                 </div>
                             </div>

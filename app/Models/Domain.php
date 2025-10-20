@@ -248,6 +248,10 @@ class Domain extends Model
             }
         }
 
+        // PROACTIVE EVALUATION: Check ALL other conditional organizations
+        // to discover new assignments even if the org wasn't initially associated with this domain
+        $this->proactivelyEvaluateAllConditionalOrganizations($userIds);
+
         // BULK UPDATE 3: Set legacy organization_id field
         // Prefer non-conditional org, fallback to first conditional org, fallback to default
         $firstOrgId = null;
@@ -272,6 +276,83 @@ class Domain extends Model
             'total_users' => $totalUsers,
             'organizations' => $domainOrganizations
         ];
+    }
+
+    /**
+     * Proactively evaluate users from this domain against ALL conditional organizations
+     * This discovers new conditional organization assignments even if the org wasn't
+     * initially associated with this domain
+     */
+    protected function proactivelyEvaluateAllConditionalOrganizations(array $userIds): void
+    {
+        if (empty($userIds)) {
+            return;
+        }
+
+        // Get ALL conditional organizations that have this domain associated
+        // but weren't processed in the initial sync
+        $allConditionalOrgs = Organization::whereNotNull('conditional_rules')
+            ->whereHas('domains', function($query) {
+                $query->where('domain_id', $this->id);
+            })
+            ->select('id', 'name', 'conditional_rules')
+            ->get()
+            ->filter(function ($org) {
+                return !empty($org->conditional_rules) && !empty($org->conditional_rules['conditions']);
+            });
+
+        if ($allConditionalOrgs->isEmpty()) {
+            return;
+        }
+
+        $conditionalEvaluator = new \App\Services\ConditionalRuleEvaluator();
+
+        // Load users with their custom field values
+        $users = User::with('customFieldValues')
+            ->whereIn('id', $userIds)
+            ->get();
+
+        $now = now()->format('Y-m-d H:i:s');
+        $pivotData = [];
+
+        foreach ($allConditionalOrgs as $org) {
+            foreach ($users as $user) {
+                // Evaluate if user meets the conditional rules
+                if ($conditionalEvaluator->userMeetsConditions($user, $org->conditional_rules)) {
+                    // Check if relationship already exists
+                    $exists = \Illuminate\Support\Facades\DB::table('organization_user')
+                        ->where('user_id', $user->id)
+                        ->where('organization_id', $org->id)
+                        ->exists();
+
+                    if (!$exists) {
+                        $pivotData[] = [
+                            'user_id' => $user->id,
+                            'organization_id' => $org->id,
+                            'is_manual' => false,
+                            'created_at' => $now,
+                            'updated_at' => $now
+                        ];
+
+                        \Illuminate\Support\Facades\Log::info('User proactively assigned to conditional organization during domain sync', [
+                            'user_id' => $user->id,
+                            'email' => $user->email,
+                            'organization_id' => $org->id,
+                            'organization_name' => $org->name,
+                            'domain' => $this->domain,
+                        ]);
+                    }
+                }
+            }
+        }
+
+        // Bulk insert new assignments
+        if (!empty($pivotData)) {
+            $chunks = array_chunk($pivotData, 500);
+            foreach ($chunks as $chunk) {
+                \Illuminate\Support\Facades\DB::table('organization_user')->insert($chunk);
+            }
+        }
     }
 
     /**
