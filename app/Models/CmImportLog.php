@@ -8,6 +8,18 @@ use Illuminate\Database\Eloquent\Model;
 class CmImportLog extends Model
 {
     use HasFactory;
+
+    protected $attributes = [
+        'processed_rows' => 0,
+        'created_count' => 0,
+        'updated_count' => 0,
+        'failed_count' => 0,
+        'total_chunks' => 0,
+        'completed_chunks' => 0,
+        'failed_chunks' => 0,
+        'is_chunked' => false,
+    ];
+
     protected $fillable = [
         'user_id',
         'filename',

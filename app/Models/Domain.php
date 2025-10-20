@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Domain extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'domain',
     ];
@@ -76,11 +78,25 @@ class Domain extends Model
     /**
      * Scan database and assign all users with this domain to it
      * and to the associated organizations (many-to-many)
+     * Respects conditional organization rules
      */
     public function assignUsersFromDomain(): array
     {
-        // Get all organizations associated with this domain
-        $domainOrganizations = $this->organizations()->pluck('organizations.id')->toArray();
+        // Get all organizations associated with this domain with their conditional rules
+        $organizations = $this->organizations()
+            ->select('organizations.id', 'organizations.name', 'organizations.conditional_rules')
+            ->get();
+
+        $domainOrganizations = $organizations->pluck('id')->toArray();
+
+        // Separate conditional and non-conditional organizations
+        $conditionalOrgs = $organizations->filter(function($org) {
+            return !empty($org->conditional_rules) && !empty($org->conditional_rules['conditions']);
+        });
+
+        $nonConditionalOrgs = $organizations->filter(function($org) {
+            return empty($org->conditional_rules) || empty($org->conditional_rules['conditions']);
+        })->pluck('id')->toArray();
 
         // BULK UPDATE 1: Set domain_id for all users with this domain email
         // This is 1000x faster than looping!
@@ -103,12 +119,12 @@ class Domain extends Model
 
         $totalUsers = count($userIds);
 
-        // BULK UPDATE 2: Sync organizations to users (pivot table)
-        if (!empty($domainOrganizations) && !empty($userIds)) {
+        // BULK UPDATE 2: Sync NON-CONDITIONAL organizations to users (pivot table)
+        if (!empty($nonConditionalOrgs) && !empty($userIds)) {
             // Get existing relationships to avoid duplicates
             $existingRelations = \Illuminate\Support\Facades\DB::table('organization_user')
                 ->whereIn('user_id', $userIds)
-                ->whereIn('organization_id', $domainOrganizations)
+                ->whereIn('organization_id', $nonConditionalOrgs)
                 ->get()
                 ->mapWithKeys(function($item) {
                     return ["{$item->user_id}_{$item->organization_id}" => true];
@@ -120,7 +136,7 @@ class Domain extends Model
             $pivotData = [];
 
             foreach ($userIds as $userId) {
-                foreach ($domainOrganizations as $orgId) {
+                foreach ($nonConditionalOrgs as $orgId) {
                     $key = "{$userId}_{$orgId}";
                     if (!isset($existingRelations[$key])) {
                         $pivotData[] = [
@@ -141,13 +157,112 @@ class Domain extends Model
                     \Illuminate\Support\Facades\DB::table('organization_user')->insert($chunk);
                 }
             }
+        }
 
-            // BULK UPDATE 3: Set legacy organization_id field
+        // HANDLE CONDITIONAL ORGANIZATIONS: Evaluate rules and assign qualified users
+        if ($conditionalOrgs->isNotEmpty() && !empty($userIds)) {
+            $conditionalEvaluator = new \App\Services\ConditionalRuleEvaluator();
+
+            // Load users with their custom field values in chunks for memory efficiency
+            $users = User::with('customFieldValues')
+                ->whereIn('id', $userIds)
+                ->get();
+
+            // Get Default Organization for fallback
+            $defaultOrg = Organization::firstOrCreate(
+                ['name' => 'Default Organization'],
+                ['is_active' => true]
+            );
+
+            $now = now()->format('Y-m-d H:i:s');
+            $conditionalPivotData = [];
+            $usersMeetingConditions = [];
+            $usersNotMeetingAnyCondition = [];
+
+            foreach ($users as $user) {
+                $userQualifiesForAny = false;
+
+                foreach ($conditionalOrgs as $org) {
+                    if ($conditionalEvaluator->userMeetsConditions($user, $org->conditional_rules)) {
+                        $userQualifiesForAny = true;
+                        $usersMeetingConditions[] = $user->id;
+
+                        // Check if relationship already exists
+                        $exists = \Illuminate\Support\Facades\DB::table('organization_user')
+                            ->where('user_id', $user->id)
+                            ->where('organization_id', $org->id)
+                            ->exists();
+
+                        if (!$exists) {
+                            $conditionalPivotData[] = [
+                                'user_id' => $user->id,
+                                'organization_id' => $org->id,
+                                'is_manual' => false,
+                                'created_at' => $now,
+                                'updated_at' => $now
+                            ];
+                        }
+
+                        \Illuminate\Support\Facades\Log::debug('User meets conditional organization rules', [
+                            'user_id' => $user->id,
+                            'organization_id' => $org->id,
+                            'organization_name' => $org->name
+                        ]);
+                    }
+                }
+
+                // If user doesn't qualify for ANY conditional organization, assign to Default
+                if (!$userQualifiesForAny && $conditionalOrgs->isNotEmpty()) {
+                    $usersNotMeetingAnyCondition[] = $user->id;
+
+                    // Check if relationship already exists
+                    $exists = \Illuminate\Support\Facades\DB::table('organization_user')
+                        ->where('user_id', $user->id)
+                        ->where('organization_id', $defaultOrg->id)
+                        ->exists();
+
+                    if (!$exists) {
+                        $conditionalPivotData[] = [
+                            'user_id' => $user->id,
+                            'organization_id' => $defaultOrg->id,
+                            'is_manual' => false,
+                            'created_at' => $now,
+                            'updated_at' => $now
+                        ];
+                    }
+
+                    \Illuminate\Support\Facades\Log::info('User assigned to Default Organization (no conditional match)', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'domain' => $this->domain
+                    ]);
+                }
+            }
+
+            // Bulk insert conditional organization assignments
+            if (!empty($conditionalPivotData)) {
+                $chunks = array_chunk($conditionalPivotData, 500);
+                foreach ($chunks as $chunk) {
+                    \Illuminate\Support\Facades\DB::table('organization_user')->insert($chunk);
+                }
+            }
+        }
+
+        // BULK UPDATE 3: Set legacy organization_id field
+        // Prefer non-conditional org, fallback to first conditional org, fallback to default
+        $firstOrgId = null;
+        if (!empty($nonConditionalOrgs)) {
+            $firstOrgId = $nonConditionalOrgs[0];
+        } elseif (!empty($domainOrganizations)) {
+            $firstOrgId = $domainOrganizations[0];
+        }
+
+        if ($firstOrgId) {
             \Illuminate\Support\Facades\DB::table('users')
                 ->where('email', 'like', '%@' . $this->domain)
                 ->whereNull('organization_id')
                 ->update([
-                    'organization_id' => $domainOrganizations[0] ?? null,
+                    'organization_id' => $firstOrgId,
                     'updated_at' => now()
                 ]);
         }
@@ -162,11 +277,15 @@ class Domain extends Model
     /**
      * Assign users to a specific organization for this domain (many-to-many)
      * OPTIMIZED: Uses bulk queries instead of loops
+     * Respects conditional organization rules
      */
     public function assignUsersToOrganization(Organization $organization): int
     {
-        // Find Default Organization
-        $defaultOrganization = Organization::where('name', 'Default Organization')->first();
+        // Find or create Default Organization
+        $defaultOrganization = Organization::firstOrCreate(
+            ['name' => 'Default Organization'],
+            ['is_active' => true]
+        );
 
         // Get current organization IDs for this domain
         $currentOrgIds = $this->organizations()->pluck('organizations.id')->toArray();
@@ -203,8 +322,18 @@ class Domain extends Model
             ->pluck('id')
             ->toArray();
 
-        // BULK UPDATE 2: Add organization to users (pivot table)
-        if (!empty($userIds)) {
+        // Check if organization has conditional rules
+        $hasConditionalRules = !empty($organization->conditional_rules) && !empty($organization->conditional_rules['conditions']);
+
+        if ($hasConditionalRules) {
+            // CONDITIONAL ORGANIZATION: Only assign users who meet the conditions
+            $conditionalEvaluator = new \App\Services\ConditionalRuleEvaluator();
+
+            // Load users with their custom field values
+            $users = User::with('customFieldValues')
+                ->whereIn('id', $userIds)
+                ->get();
+
             // Get existing relationships to avoid duplicates
             $existingRelations = \Illuminate\Support\Facades\DB::table('organization_user')
                 ->whereIn('user_id', $userIds)
@@ -212,44 +341,145 @@ class Domain extends Model
                 ->pluck('user_id')
                 ->toArray();
 
-            // Find users that don't have this organization yet
-            $usersToAdd = array_diff($userIds, $existingRelations);
+            $now = now()->format('Y-m-d H:i:s');
+            $pivotData = [];
+            $qualifiedUserIds = [];
+            $disqualifiedUserIds = [];
 
-            // Bulk insert missing relationships
-            if (!empty($usersToAdd)) {
-                $now = now()->format('Y-m-d H:i:s');
-                $pivotData = [];
+            foreach ($users as $user) {
+                if ($conditionalEvaluator->userMeetsConditions($user, $organization->conditional_rules)) {
+                    $qualifiedUserIds[] = $user->id;
 
-                foreach ($usersToAdd as $userId) {
-                    $pivotData[] = [
-                        'user_id' => $userId,
+                    // Only add if not already assigned
+                    if (!in_array($user->id, $existingRelations)) {
+                        $pivotData[] = [
+                            'user_id' => $user->id,
+                            'organization_id' => $organization->id,
+                            'is_manual' => false,
+                            'created_at' => $now,
+                            'updated_at' => $now
+                        ];
+                    }
+
+                    \Illuminate\Support\Facades\Log::debug('User meets conditional organization rules', [
+                        'user_id' => $user->id,
                         'organization_id' => $organization->id,
-                        'is_manual' => false, // Auto-assigned via domain sync
-                        'created_at' => $now,
-                        'updated_at' => $now
-                    ];
-                }
+                        'organization_name' => $organization->name
+                    ]);
+                } else {
+                    $disqualifiedUserIds[] = $user->id;
 
-                // Insert in chunks
+                    // Assign to Default Organization instead
+                    if ($defaultOrganization) {
+                        $defaultExists = \Illuminate\Support\Facades\DB::table('organization_user')
+                            ->where('user_id', $user->id)
+                            ->where('organization_id', $defaultOrganization->id)
+                            ->exists();
+
+                        if (!$defaultExists) {
+                            $pivotData[] = [
+                                'user_id' => $user->id,
+                                'organization_id' => $defaultOrganization->id,
+                                'is_manual' => false,
+                                'created_at' => $now,
+                                'updated_at' => $now
+                            ];
+                        }
+                    }
+
+                    \Illuminate\Support\Facades\Log::info('User does not meet conditional organization rules, assigned to Default', [
+                        'user_id' => $user->id,
+                        'email' => $user->email,
+                        'organization_id' => $organization->id,
+                        'organization_name' => $organization->name
+                    ]);
+                }
+            }
+
+            // Bulk insert relationships
+            if (!empty($pivotData)) {
                 $chunks = array_chunk($pivotData, 500);
                 foreach ($chunks as $chunk) {
                     \Illuminate\Support\Facades\DB::table('organization_user')->insert($chunk);
                 }
             }
 
-            // BULK UPDATE 3: Set legacy organization_id field
-            \Illuminate\Support\Facades\DB::table('users')
-                ->where('email', 'like', '%@' . $this->domain)
-                ->where(function($query) use ($organization) {
-                    $query->whereNull('organization_id')
-                        ->orWhere('organization_id', '!=', $organization->id);
-                })
-                ->update([
-                    'organization_id' => $organization->id,
-                    'updated_at' => now()
-                ]);
-        }
+            // BULK UPDATE 3: Set legacy organization_id field for qualified users only
+            if (!empty($qualifiedUserIds)) {
+                \Illuminate\Support\Facades\DB::table('users')
+                    ->whereIn('id', $qualifiedUserIds)
+                    ->where(function($query) use ($organization) {
+                        $query->whereNull('organization_id')
+                            ->orWhere('organization_id', '!=', $organization->id);
+                    })
+                    ->update([
+                        'organization_id' => $organization->id,
+                        'updated_at' => now()
+                    ]);
+            }
 
-        return count($userIds);
+            // Set default organization for disqualified users
+            if (!empty($disqualifiedUserIds) && $defaultOrganization) {
+                \Illuminate\Support\Facades\DB::table('users')
+                    ->whereIn('id', $disqualifiedUserIds)
+                    ->whereNull('organization_id')
+                    ->update([
+                        'organization_id' => $defaultOrganization->id,
+                        'updated_at' => now()
+                    ]);
+            }
+
+            return count($qualifiedUserIds);
+        } else {
+            // NON-CONDITIONAL ORGANIZATION: Assign all users (original behavior)
+            // BULK UPDATE 2: Add organization to users (pivot table)
+            if (!empty($userIds)) {
+                // Get existing relationships to avoid duplicates
+                $existingRelations = \Illuminate\Support\Facades\DB::table('organization_user')
+                    ->whereIn('user_id', $userIds)
+                    ->where('organization_id', $organization->id)
+                    ->pluck('user_id')
+                    ->toArray();
+
+                // Find users that don't have this organization yet
+                $usersToAdd = array_diff($userIds, $existingRelations);
+
+                // Bulk insert missing relationships
+                if (!empty($usersToAdd)) {
+                    $now = now()->format('Y-m-d H:i:s');
+                    $pivotData = [];
+
+                    foreach ($usersToAdd as $userId) {
+                        $pivotData[] = [
+                            'user_id' => $userId,
+                            'organization_id' => $organization->id,
+                            'is_manual' => false, // Auto-assigned via domain sync
+                            'created_at' => $now,
+                            'updated_at' => $now
+                        ];
+                    }
+
+                    // Insert in chunks
+                    $chunks = array_chunk($pivotData, 500);
+                    foreach ($chunks as $chunk) {
+                        \Illuminate\Support\Facades\DB::table('organization_user')->insert($chunk);
+                    }
+                }
+
+                // BULK UPDATE 3: Set legacy organization_id field
+                \Illuminate\Support\Facades\DB::table('users')
+                    ->where('email', 'like', '%@' . $this->domain)
+                    ->where(function($query) use ($organization) {
+                        $query->whereNull('organization_id')
+                            ->orWhere('organization_id', '!=', $organization->id);
+                    })
+                    ->update([
+                        'organization_id' => $organization->id,
+                        'updated_at' => now()
+                    ]);
+            }
+
+            return count($userIds);
+        }
     }
 }

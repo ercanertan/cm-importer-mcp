@@ -18,10 +18,12 @@ class CampaignMonitorImportService
     protected $log;
     protected $batchCounter = 0;
     protected $defaultOrganization = null;
+    protected $conditionalEvaluator;
 
     public function __construct()
     {
         $this->config = config('campaign-monitor');
+        $this->conditionalEvaluator = new ConditionalRuleEvaluator();
     }
 
     protected function convertToFieldKey($fieldName)
@@ -235,7 +237,13 @@ class CampaignMonitorImportService
     {
         try {
             $pdo = DB::getPdo();
-            $pdo->beginTransaction();
+
+            // Check if we're already in a transaction (e.g., during tests)
+            $inTransaction = DB::transactionLevel() > 0;
+
+            if (!$inTransaction) {
+                $pdo->beginTransaction();
+            }
 
             // PERFORMANCE OPTIMIZATION: Pre-process domains and organization ONCE for entire batch
             // This reduces queries from N to 1 (where N = batch size, typically 500)
@@ -310,6 +318,12 @@ class CampaignMonitorImportService
                 $this->bulkInsertCustomFields($pdo, $customFieldData);
             }
 
+            // Evaluate conditional rules and filter user-organization mappings
+            // This must happen AFTER custom fields are inserted so the evaluator can check them
+            if (!empty($userOrganizationMap)) {
+                $userOrganizationMap = $this->evaluateConditionalRules($userOrganizationMap, $batch, $domainMap);
+            }
+
             // Bulk sync domain-organization relationships
             // Note: processedDomainIds only contains domains that need to be synced to Default Organization
             if (!empty($processedDomainIds) && $defaultOrganization) {
@@ -321,7 +335,10 @@ class CampaignMonitorImportService
                 $this->bulkSyncUserOrganizations($userOrganizationMap);
             }
 
-            $pdo->commit();
+            // Only commit if we started the transaction
+            if (!$inTransaction) {
+                $pdo->commit();
+            }
 
             // Update counters in memory (save every N batches to reduce DB writes)
             $this->log->processed_rows += count($batch);
@@ -347,7 +364,10 @@ class CampaignMonitorImportService
             }
 
         } catch (Exception $e) {
-            $pdo->rollBack();
+            // Only rollback if we started the transaction
+            if (!$inTransaction) {
+                $pdo->rollBack();
+            }
             $this->log->failed_count += count($batch);
             $this->logError("PDO batch processing failed: " . $e->getMessage());
             throw $e;
@@ -1349,11 +1369,110 @@ class CampaignMonitorImportService
             }
 
             $sql .= implode(', ', $values);
-            $sql .= " ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)";
+
+            // Use database-specific upsert syntax
+            $driver = DB::getDriverName();
+            if ($driver === 'sqlite') {
+                $sql .= " ON CONFLICT(user_id, cm_custom_field_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at";
+            } else {
+                // MySQL/MariaDB
+                $sql .= " ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)";
+            }
 
             $stmt = $pdo->prepare($sql);
             $stmt->execute($params);
         }
+    }
+
+    /**
+     * Evaluate conditional rules for organizations and filter user-organization mappings
+     * Removes users from organizations they don't meet conditions for
+     *
+     * @param array $userOrganizationMap email => organization_id mappings
+     * @param array $batch Original batch data with custom field values
+     * @param array $domainMap Domain map with organizations
+     * @return array Filtered user-organization map
+     */
+    protected function evaluateConditionalRules(array $userOrganizationMap, array $batch, array $domainMap): array
+    {
+        if (empty($userOrganizationMap)) {
+            return $userOrganizationMap;
+        }
+
+        // Build a map of organization_id => organization data with conditional_rules
+        $organizationsWithRules = [];
+        foreach ($domainMap as $domain) {
+            if (isset($domain['organizations']) && !empty($domain['organizations'])) {
+                foreach ($domain['organizations'] as $org) {
+                    $orgArray = is_array($org) ? $org : (array)$org;
+                    if (!empty($orgArray['conditional_rules'])) {
+                        $organizationsWithRules[$orgArray['id']] = $orgArray;
+                    }
+                }
+            }
+        }
+
+        // If no organizations have conditional rules, return unchanged
+        if (empty($organizationsWithRules)) {
+            return $userOrganizationMap;
+        }
+
+        // Get field key to ID mapping for evaluation
+        $fieldKeyToIdMap = CmCustomField::pluck('id', 'field_key')->toArray();
+
+        // Get default organization for fallback
+        $defaultOrg = $this->getOrCreateDefaultOrganization();
+
+        // Filter user-organization mappings
+        $filteredMap = [];
+        foreach ($userOrganizationMap as $email => $organizationId) {
+            // If this organization has conditional rules, evaluate them
+            if (isset($organizationsWithRules[$organizationId])) {
+                $org = $organizationsWithRules[$organizationId];
+                $conditionalRules = $org['conditional_rules'];
+
+                // Find the row data for this email
+                $rowData = null;
+                foreach ($batch as $row) {
+                    if ($row['email'] === $email) {
+                        $rowData = $row;
+                        break;
+                    }
+                }
+
+                if ($rowData) {
+                    // Evaluate if user meets conditions
+                    $meetsConditions = $this->conditionalEvaluator->evaluateRowData(
+                        $rowData,
+                        $fieldKeyToIdMap,
+                        $conditionalRules
+                    );
+
+                    if ($meetsConditions) {
+                        // User meets conditions, keep the assignment
+                        $filteredMap[$email] = $organizationId;
+                    } else {
+                        // User doesn't meet conditions, assign to default organization
+                        $filteredMap[$email] = $defaultOrg->id;
+
+                        Log::info('User excluded from conditional organization', [
+                            'email' => $email,
+                            'organization_id' => $organizationId,
+                            'organization_name' => $org['name'] ?? 'Unknown',
+                            'reason' => 'Does not meet conditional rules'
+                        ]);
+                    }
+                } else {
+                    // If we can't find row data, fall back to default org for safety
+                    $filteredMap[$email] = $defaultOrg->id;
+                }
+            } else {
+                // Organization has no conditional rules, keep the assignment
+                $filteredMap[$email] = $organizationId;
+            }
+        }
+
+        return $filteredMap;
     }
 
     protected function ensureCustomFieldsExist($fieldKeys)
@@ -1487,9 +1606,11 @@ class CampaignMonitorImportService
             return [];
         }
 
-        // Find existing domains WITH their organizations
+        // Find existing domains WITH their organizations (including conditional_rules)
         $existingDomains = Domain::whereIn('domain', $domainStrings)
-            ->with('organizations')
+            ->with(['organizations' => function($query) {
+                $query->select('organizations.id', 'organizations.name', 'organizations.conditional_rules', 'organizations.is_active');
+            }])
             ->get()
             ->keyBy('domain');
 
@@ -1512,8 +1633,12 @@ class CampaignMonitorImportService
             // Use DB insert for bulk creation
             DB::table('domains')->insert($insertData);
 
-            // Fetch the newly created domains with organizations
-            $newDomains = Domain::whereIn('domain', $missingDomains)->with('organizations')->get();
+            // Fetch the newly created domains with organizations (including conditional_rules)
+            $newDomains = Domain::whereIn('domain', $missingDomains)
+                ->with(['organizations' => function($query) {
+                    $query->select('organizations.id', 'organizations.name', 'organizations.conditional_rules', 'organizations.is_active');
+                }])
+                ->get();
 
             // Merge with existing domains
             foreach ($newDomains as $domain) {

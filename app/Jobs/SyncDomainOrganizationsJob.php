@@ -3,8 +3,10 @@
 namespace App\Jobs;
 
 use App\Models\Domain;
+use App\Models\Organization;
 use App\Models\SyncLog;
 use App\Models\User;
+use App\Services\ConditionalRuleEvaluator;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -87,8 +89,20 @@ class SyncDomainOrganizationsJob implements ShouldQueue
                 'organization_ids' => $this->organizationIds
             ]);
 
+            // Load organizations with conditional rules
+            $organizations = Organization::whereIn('id', $this->organizationIds)
+                ->select('id', 'name', 'conditional_rules', 'is_active')
+                ->get()
+                ->keyBy('id');
+
+            // Get Default Organization for fallback
+            $defaultOrg = Organization::firstOrCreate(
+                ['name' => 'Default Organization'],
+                ['is_active' => true]
+            );
+
             // Get all users with this domain
-            $users = User::where('email', 'like', '%@' . $domain->domain)->get();
+            $users = User::with('customFieldValues')->where('email', 'like', '%@' . $domain->domain)->get();
             $totalUsers = $users->count();
 
             // Update total items
@@ -97,6 +111,8 @@ class SyncDomainOrganizationsJob implements ShouldQueue
             $processed = 0;
             $successful = 0;
             $failed = 0;
+
+            $conditionalEvaluator = new ConditionalRuleEvaluator();
 
             // Update each user's organizations
             foreach ($users as $user) {
@@ -107,8 +123,54 @@ class SyncDomainOrganizationsJob implements ShouldQueue
                         ->pluck('organizations.id')
                         ->toArray();
 
-                    // Merge manual assignments with domain-based assignments
-                    $allOrgIds = array_unique(array_merge($this->organizationIds, $manualOrgIds));
+                    // Evaluate which domain-based organizations the user qualifies for
+                    $qualifiedOrgIds = [];
+                    $hasConditionalOrg = false;
+
+                    foreach ($this->organizationIds as $orgId) {
+                        $org = $organizations->get($orgId);
+
+                        if (!$org) {
+                            continue;
+                        }
+
+                        // Check if organization has conditional rules
+                        if (!empty($org->conditional_rules) && !empty($org->conditional_rules['conditions'])) {
+                            $hasConditionalOrg = true;
+
+                            // Evaluate if user meets conditions
+                            if ($conditionalEvaluator->userMeetsConditions($user, $org->conditional_rules)) {
+                                $qualifiedOrgIds[] = $orgId;
+                                Log::debug('User meets conditional organization rules', [
+                                    'user_id' => $user->id,
+                                    'organization_id' => $orgId,
+                                    'organization_name' => $org->name
+                                ]);
+                            } else {
+                                Log::debug('User does not meet conditional organization rules', [
+                                    'user_id' => $user->id,
+                                    'organization_id' => $orgId,
+                                    'organization_name' => $org->name
+                                ]);
+                            }
+                        } else {
+                            // No conditional rules, user qualifies
+                            $qualifiedOrgIds[] = $orgId;
+                        }
+                    }
+
+                    // If user doesn't qualify for any domain organization, assign to Default
+                    if (empty($qualifiedOrgIds) && $hasConditionalOrg) {
+                        $qualifiedOrgIds[] = $defaultOrg->id;
+                        Log::info('User assigned to Default Organization (no conditional match)', [
+                            'user_id' => $user->id,
+                            'email' => $user->email,
+                            'domain' => $domain->domain
+                        ]);
+                    }
+
+                    // Merge manual assignments with qualified domain-based assignments
+                    $allOrgIds = array_unique(array_merge($qualifiedOrgIds, $manualOrgIds));
 
                     // Prepare sync data: mark domain-based as is_manual=false
                     $syncData = [];
@@ -119,8 +181,8 @@ class SyncDomainOrganizationsJob implements ShouldQueue
                     // Sync organizations (preserves manual assignments)
                     $user->organizations()->sync($syncData);
 
-                    // Update legacy organization_id to first organization
-                    $user->organization_id = $this->organizationIds[0] ?? null;
+                    // Update legacy organization_id to first qualified organization
+                    $user->organization_id = $qualifiedOrgIds[0] ?? $defaultOrg->id;
                     $user->save();
 
                     $successful++;
@@ -129,7 +191,7 @@ class SyncDomainOrganizationsJob implements ShouldQueue
                         'sync_log_id' => $syncLog->id,
                         'user_id' => $user->id,
                         'email' => $user->email,
-                        'organization_ids' => $this->organizationIds
+                        'qualified_organization_ids' => $qualifiedOrgIds
                     ]);
                 } catch (\Exception $e) {
                     $failed++;
