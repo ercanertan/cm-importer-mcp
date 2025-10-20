@@ -65,26 +65,14 @@ class OrganizationManager extends Component
     }
 
     /**
-     * Livewire lifecycle hook to ensure conditions is always a plain array
-     * This prevents the "toJSON method not found" serialization error
+     * Livewire hydrate hook - ensures conditions array is properly normalized
+     * This prevents stdClass objects from breaking array access in Blade templates
      */
-    public function updatingConditions($value)
+    public function hydrate()
     {
-        // Normalize to plain array if needed
-        if (!is_array($value)) {
-            $value = [];
-        }
-        return json_decode(json_encode($value), true);
-    }
-
-    /**
-     * Livewire dehydrate hook - called before sending component state to frontend
-     * Ensures conditions is always a plain array to prevent serialization errors
-     */
-    public function dehydrate()
-    {
-        // Ensure conditions is always a plain array
-        if (!empty($this->conditions)) {
+        // Normalize conditions to plain array after hydration
+        // This is crucial for the disabled attribute check in the value input field
+        if (isset($this->conditions) && is_array($this->conditions)) {
             $this->conditions = json_decode(json_encode($this->conditions), true);
         }
     }
@@ -157,9 +145,7 @@ class OrganizationManager extends Component
         $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
         $this->is_active = true;
         $this->conditionLogic = 'AND';
-
-        // Ensure conditions is a plain array
-        $this->conditions = json_decode(json_encode([]), true); // Start with empty conditions
+        $this->conditions = []; // Start with empty conditions
 
         $this->showAdvancedCreateModal = true;
     }
@@ -185,12 +171,9 @@ class OrganizationManager extends Component
         $this->is_active = $organization->is_active;
         $this->domains = $organization->domains->pluck('domain')->implode(', ');
         $this->conditionLogic = $organization->getConditionLogic();
+        $this->conditions = $organization->getConditions();
 
-        // Fix: Ensure conditions is a plain array to avoid Livewire serialization errors
-        // Convert to JSON and back to remove any stdClass objects or other non-serializable data
-        $this->conditions = json_decode(json_encode($organization->getConditions()), true);
-
-        // Store only the ID to avoid serialization issues with JSON columns
+        // Store only ID and name (using #[Locked] attribute for security)
         $this->organizationToEditAdvanced = $organization->only(['id', 'name']);
 
         $this->showAdvancedEditModal = true;
@@ -289,18 +272,12 @@ class OrganizationManager extends Component
             'operator' => 'equals',
             'value' => ''
         ];
-
-        // Ensure conditions stays as a plain array
-        $this->conditions = json_decode(json_encode($this->conditions), true);
     }
 
     public function removeCondition($index)
     {
         unset($this->conditions[$index]);
         $this->conditions = array_values($this->conditions); // Re-index array
-
-        // Ensure conditions stays as a plain array
-        $this->conditions = json_decode(json_encode($this->conditions), true);
     }
 
     #[\Livewire\Attributes\Computed]

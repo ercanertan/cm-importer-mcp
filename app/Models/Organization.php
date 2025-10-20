@@ -84,9 +84,13 @@ class Organization extends Model
 
     /**
      * Get the conditions array
+     * Returns a plain array to prevent Livewire serialization errors
      */
     public function getConditions(): array
     {
-        return $this->conditional_rules['conditions'] ?? [];
+        $conditions = $this->conditional_rules['conditions'] ?? [];
+
+        // Ensure it's always a plain array, not stdClass objects
+        return json_decode(json_encode($conditions), true);
     }
 }
