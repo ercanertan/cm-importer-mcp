@@ -36,6 +36,31 @@ class CmCustomFieldValue extends Model
         return $query->where('user_id', $userId);
     }
 
+    public function getValueAttribute($value)
+    {
+        $field = $this->customField;
+
+        // Decode JSON for multi-select fields with allow_multiple
+        if ($field && $field->data_type === 'multi_select' && $field->allow_multiple) {
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return $value;
+    }
+
+    public function setValueAttribute($value)
+    {
+        $field = $this->customField;
+
+        // Encode to JSON for multi-select fields with allow_multiple
+        if ($field && $field->data_type === 'multi_select' && $field->allow_multiple && is_array($value)) {
+            $this->attributes['value'] = json_encode($value);
+        } else {
+            $this->attributes['value'] = $value;
+        }
+    }
+
     public function getFormattedValueAttribute()
     {
         $field = $this->customField;
@@ -59,7 +84,12 @@ class CmCustomFieldValue extends Model
             case 'number':
                 return is_numeric($this->value) ? (float) $this->value : $this->value;
             case 'multi_select':
-                return is_string($this->value) ? explode(',', $this->value) : $this->value;
+                // If allow_multiple, value is already an array from the accessor
+                if ($field->allow_multiple) {
+                    return $this->value;
+                }
+                // Otherwise, it's a single value
+                return $this->value;
             default:
                 return $this->value;
         }

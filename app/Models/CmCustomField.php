@@ -12,6 +12,7 @@ class CmCustomField extends Model
         'field_key',
         'field_name',
         'data_type',
+        'allow_multiple',
         'options',
         'is_active',
         'is_user_editable',
@@ -22,6 +23,7 @@ class CmCustomField extends Model
         'options' => 'array',
         'is_active' => 'boolean',
         'is_user_editable' => 'boolean',
+        'allow_multiple' => 'boolean',
         'last_seen_at' => 'datetime',
     ];
 

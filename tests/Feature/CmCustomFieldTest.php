@@ -222,10 +222,64 @@ describe('CmCustomField Model', function () {
             expect($field->fresh()->is_active)->toBeBool();
         });
 
+        it('casts allow_multiple as boolean', function () {
+            $field = CmCustomField::factory()->create(['allow_multiple' => true]);
+
+            expect($field->fresh()->allow_multiple)->toBeTrue();
+            expect($field->fresh()->allow_multiple)->toBeBool();
+        });
+
         it('casts last_seen_at as datetime', function () {
             $field = CmCustomField::factory()->create();
 
             expect($field->last_seen_at)->toBeInstanceOf(\Illuminate\Support\Carbon::class);
+        });
+    });
+
+    describe('allow_multiple functionality', function () {
+        it('defaults allow_multiple to false', function () {
+            $field = CmCustomField::factory()->create();
+
+            expect($field->allow_multiple)->toBeFalse();
+        });
+
+        it('creates field with allow_multiple enabled', function () {
+            $field = CmCustomField::factory()->create([
+                'data_type' => 'multi_select',
+                'allow_multiple' => true,
+                'options' => ['Option 1', 'Option 2', 'Option 3'],
+            ]);
+
+            expect($field->allow_multiple)->toBeTrue();
+            expect($field->data_type)->toBe('multi_select');
+        });
+
+        it('allows allow_multiple on multi_select fields', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => true,
+            ]);
+
+            expect($field->allow_multiple)->toBeTrue();
+            expect($field->data_type)->toBe('multi_select');
+        });
+
+        it('can have allow_multiple false for multi_select fields', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => false,
+            ]);
+
+            expect($field->allow_multiple)->toBeFalse();
+            expect($field->data_type)->toBe('multi_select');
+        });
+
+        it('can toggle allow_multiple on existing field', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => false,
+            ]);
+
+            $field->update(['allow_multiple' => true]);
+
+            expect($field->fresh()->allow_multiple)->toBeTrue();
         });
     });
 

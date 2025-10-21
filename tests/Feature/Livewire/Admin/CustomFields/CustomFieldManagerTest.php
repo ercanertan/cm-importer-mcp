@@ -234,6 +234,126 @@ describe('CustomFieldManager - Create Functionality', function () {
     });
 });
 
+describe('CustomFieldManager - Allow Multiple Functionality', function () {
+    test('it creates multi_select field with allow_multiple enabled', function () {
+        Livewire::test(CustomFieldManager::class)
+            ->call('openCreateModal')
+            ->set('field_key', 'skills')
+            ->set('field_name', 'Skills')
+            ->set('data_type', 'multi_select')
+            ->set('allow_multiple', true)
+            ->set('options', 'PHP, Laravel, JavaScript')
+            ->call('createCustomField')
+            ->assertHasNoErrors();
+
+        $field = CmCustomField::where('field_key', 'skills')->first();
+        expect($field->allow_multiple)->toBeTrue();
+        expect($field->data_type)->toBe('multi_select');
+    });
+
+    test('it creates multi_select field with allow_multiple disabled', function () {
+        Livewire::test(CustomFieldManager::class)
+            ->call('openCreateModal')
+            ->set('field_key', 'department')
+            ->set('field_name', 'Department')
+            ->set('data_type', 'multi_select')
+            ->set('allow_multiple', false)
+            ->set('options', 'Sales, Engineering, Marketing')
+            ->call('createCustomField')
+            ->assertHasNoErrors();
+
+        $field = CmCustomField::where('field_key', 'department')->first();
+        expect($field->allow_multiple)->toBeFalse();
+    });
+
+    test('it defaults allow_multiple to false when creating field', function () {
+        Livewire::test(CustomFieldManager::class)
+            ->call('openCreateModal')
+            ->assertSet('allow_multiple', false);
+    });
+
+    test('it updates field with allow_multiple enabled', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'skills',
+            'field_name' => 'Skills',
+            'data_type' => 'multi_select',
+            'allow_multiple' => false,
+            'options' => ['Option 1', 'Option 2'],
+            'is_active' => true,
+        ]);
+
+        Livewire::test(CustomFieldManager::class)
+            ->call('openEditModal', $field->id)
+            ->set('allow_multiple', true)
+            ->call('updateCustomField')
+            ->assertHasNoErrors();
+
+        expect($field->fresh()->allow_multiple)->toBeTrue();
+    });
+
+    test('it updates field with allow_multiple disabled', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'categories',
+            'field_name' => 'Categories',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['Cat 1', 'Cat 2'],
+            'is_active' => true,
+        ]);
+
+        Livewire::test(CustomFieldManager::class)
+            ->call('openEditModal', $field->id)
+            ->set('allow_multiple', false)
+            ->call('updateCustomField')
+            ->assertHasNoErrors();
+
+        expect($field->fresh()->allow_multiple)->toBeFalse();
+    });
+
+    test('it loads allow_multiple value when editing field', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'tags',
+            'field_name' => 'Tags',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['Tag 1', 'Tag 2'],
+            'is_active' => true,
+        ]);
+
+        Livewire::test(CustomFieldManager::class)
+            ->call('openEditModal', $field->id)
+            ->assertSet('allow_multiple', true);
+    });
+
+    test('it validates allow_multiple as boolean', function () {
+        Livewire::test(CustomFieldManager::class)
+            ->call('openCreateModal')
+            ->set('field_key', 'test')
+            ->set('field_name', 'Test')
+            ->set('data_type', 'multi_select')
+            ->set('allow_multiple', 'invalid')
+            ->call('createCustomField')
+            ->assertHasErrors(['allow_multiple']);
+    });
+
+    test('it allows allow_multiple for non-multi_select types without error', function () {
+        // While UI should only show checkbox for multi_select,
+        // backend should handle it gracefully for any type
+        Livewire::test(CustomFieldManager::class)
+            ->call('openCreateModal')
+            ->set('field_key', 'name')
+            ->set('field_name', 'Name')
+            ->set('data_type', 'text')
+            ->set('allow_multiple', true)
+            ->call('createCustomField')
+            ->assertHasNoErrors();
+
+        $field = CmCustomField::where('field_key', 'name')->first();
+        // Field is created, but allow_multiple doesn't affect text fields
+        expect($field)->not->toBeNull();
+    });
+});
+
 describe('CustomFieldManager - Edit Functionality', function () {
     test('it opens edit modal', function () {
         $customField = CmCustomField::create([

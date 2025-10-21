@@ -179,21 +179,25 @@ describe('CmCustomFieldValue Model', function () {
             expect($value->formatted_value)->toBe('not-a-number');
         });
 
-        it('formats multi-select values as array', function () {
-            $field = CmCustomField::factory()->multiSelect()->create();
+        it('formats multi-select values as string when allow_multiple is false', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => false,
+            ]);
             $value = CmCustomFieldValue::factory()->create([
                 'cm_custom_field_id' => $field->id,
-                'value' => 'Option1,Option2,Option3',
+                'value' => 'Option1',
             ]);
 
             $formatted = $value->formatted_value;
 
-            expect($formatted)->toBeArray();
-            expect($formatted)->toBe(['Option1', 'Option2', 'Option3']);
+            expect($formatted)->toBeString();
+            expect($formatted)->toBe('Option1');
         });
 
-        it('handles single-item multi-select values', function () {
-            $field = CmCustomField::factory()->multiSelect()->create();
+        it('handles single-item multi-select value as string when allow_multiple is false', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => false,
+            ]);
             $value = CmCustomFieldValue::factory()->create([
                 'cm_custom_field_id' => $field->id,
                 'value' => 'SingleOption',
@@ -201,8 +205,8 @@ describe('CmCustomFieldValue Model', function () {
 
             $formatted = $value->formatted_value;
 
-            expect($formatted)->toBeArray();
-            expect($formatted)->toBe(['SingleOption']);
+            expect($formatted)->toBeString();
+            expect($formatted)->toBe('SingleOption');
         });
 
         it('cascades delete when custom field is deleted', function () {
@@ -346,8 +350,10 @@ describe('CmCustomFieldValue Model', function () {
             expect($formatted)->toContain('Option 3');
         });
 
-        it('handles single value in multi-select field', function () {
-            $field = CmCustomField::factory()->multiSelect()->create();
+        it('handles single value in multi-select field when allow_multiple is false', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => false,
+            ]);
             $value = CmCustomFieldValue::factory()->create([
                 'cm_custom_field_id' => $field->id,
                 'value' => 'Single Option',
@@ -355,8 +361,143 @@ describe('CmCustomFieldValue Model', function () {
 
             $formatted = $value->formatted_value;
 
-            expect($formatted)->toBeArray();
-            expect($formatted)->toBe(['Single Option']);
+            expect($formatted)->toBeString();
+            expect($formatted)->toBe('Single Option');
+        });
+    });
+
+    describe('allow_multiple JSON storage', function () {
+        it('stores array values as JSON when allow_multiple is true', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => true,
+            ]);
+
+            $value = CmCustomFieldValue::create([
+                'user_id' => User::factory()->create()->id,
+                'cm_custom_field_id' => $field->id,
+                'value' => ['Option 1', 'Option 2', 'Option 3'],
+            ]);
+
+            // Check raw database value is JSON
+            $rawValue = \DB::table('cm_custom_field_values')
+                ->where('id', $value->id)
+                ->value('value');
+
+            expect($rawValue)->toBeString();
+            expect(json_decode($rawValue, true))->toBe(['Option 1', 'Option 2', 'Option 3']);
+        });
+
+        it('retrieves JSON values as array when allow_multiple is true', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => true,
+            ]);
+
+            $value = CmCustomFieldValue::create([
+                'user_id' => User::factory()->create()->id,
+                'cm_custom_field_id' => $field->id,
+                'value' => ['Option A', 'Option B'],
+            ]);
+
+            $retrieved = CmCustomFieldValue::find($value->id);
+
+            expect($retrieved->value)->toBeArray();
+            expect($retrieved->value)->toBe(['Option A', 'Option B']);
+        });
+
+        it('stores single string value when allow_multiple is false', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => false,
+            ]);
+
+            $value = CmCustomFieldValue::create([
+                'user_id' => User::factory()->create()->id,
+                'cm_custom_field_id' => $field->id,
+                'value' => 'Single Option',
+            ]);
+
+            expect($value->fresh()->value)->toBe('Single Option');
+            expect($value->fresh()->value)->toBeString();
+        });
+
+        it('handles empty array for allow_multiple fields', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => true,
+            ]);
+
+            $value = CmCustomFieldValue::create([
+                'user_id' => User::factory()->create()->id,
+                'cm_custom_field_id' => $field->id,
+                'value' => [],
+            ]);
+
+            expect($value->fresh()->value)->toBeArray();
+            expect($value->fresh()->value)->toBe([]);
+        });
+
+        it('updates array values correctly', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => true,
+            ]);
+
+            $value = CmCustomFieldValue::create([
+                'user_id' => User::factory()->create()->id,
+                'cm_custom_field_id' => $field->id,
+                'value' => ['Initial 1', 'Initial 2'],
+            ]);
+
+            $value->update(['value' => ['Updated 1', 'Updated 2', 'Updated 3']]);
+
+            expect($value->fresh()->value)->toBeArray();
+            expect($value->fresh()->value)->toBe(['Updated 1', 'Updated 2', 'Updated 3']);
+        });
+
+        it('formatted_value returns array for allow_multiple fields', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => true,
+            ]);
+
+            $value = CmCustomFieldValue::create([
+                'user_id' => User::factory()->create()->id,
+                'cm_custom_field_id' => $field->id,
+                'value' => ['Choice 1', 'Choice 2'],
+            ]);
+
+            expect($value->formatted_value)->toBeArray();
+            expect($value->formatted_value)->toBe(['Choice 1', 'Choice 2']);
+        });
+
+        it('formatted_value returns string for single-select multi_select fields', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => false,
+            ]);
+
+            $value = CmCustomFieldValue::create([
+                'user_id' => User::factory()->create()->id,
+                'cm_custom_field_id' => $field->id,
+                'value' => 'Single Choice',
+            ]);
+
+            expect($value->formatted_value)->toBe('Single Choice');
+            expect($value->formatted_value)->toBeString();
+        });
+
+        it('handles special characters in array values', function () {
+            $field = CmCustomField::factory()->multiSelect()->create([
+                'allow_multiple' => true,
+            ]);
+
+            $value = CmCustomFieldValue::create([
+                'user_id' => User::factory()->create()->id,
+                'cm_custom_field_id' => $field->id,
+                'value' => ['Option with, comma', 'Option with; semicolon', 'Option "quotes"'],
+            ]);
+
+            $retrieved = $value->fresh();
+
+            expect($retrieved->value)->toBeArray();
+            expect($retrieved->value[0])->toBe('Option with, comma');
+            expect($retrieved->value[1])->toBe('Option with; semicolon');
+            expect($retrieved->value[2])->toBe('Option "quotes"');
         });
     });
 });

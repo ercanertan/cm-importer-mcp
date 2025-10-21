@@ -488,3 +488,198 @@ describe('UserCustomFieldsEditor - User Isolation', function () {
         expect($adminValue->value)->toBe('Admin Bio');
     });
 });
+
+describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function () {
+    test('it saves array values for multi_select with allow_multiple', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'skills',
+            'field_name' => 'Skills',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['PHP', 'Laravel', 'JavaScript', 'Vue.js'],
+            'is_active' => true,
+            'is_user_editable' => true,
+        ]);
+
+        Livewire::test(UserCustomFieldsEditor::class, ['userId' => $this->targetUser->id])
+            ->set("fieldValues.{$field->id}", ['PHP', 'Laravel', 'JavaScript'])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $value = CmCustomFieldValue::where('user_id', $this->targetUser->id)
+            ->where('cm_custom_field_id', $field->id)
+            ->first();
+
+        expect($value)->not()->toBeNull();
+        expect($value->value)->toBeArray();
+        expect($value->value)->toBe(['PHP', 'Laravel', 'JavaScript']);
+    });
+
+    test('it saves single string value for multi_select without allow_multiple', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'department',
+            'field_name' => 'Department',
+            'data_type' => 'multi_select',
+            'allow_multiple' => false,
+            'options' => ['Sales', 'Engineering', 'Marketing'],
+            'is_active' => true,
+            'is_user_editable' => true,
+        ]);
+
+        Livewire::test(UserCustomFieldsEditor::class, ['userId' => $this->targetUser->id])
+            ->set("fieldValues.{$field->id}", 'Engineering')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $value = CmCustomFieldValue::where('user_id', $this->targetUser->id)
+            ->where('cm_custom_field_id', $field->id)
+            ->first();
+
+        expect($value->value)->toBe('Engineering');
+        expect($value->value)->toBeString();
+    });
+
+    test('it loads array values for multi_select with allow_multiple', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'skills',
+            'field_name' => 'Skills',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['PHP', 'Laravel', 'JavaScript'],
+            'is_active' => true,
+            'is_user_editable' => true,
+        ]);
+
+        CmCustomFieldValue::create([
+            'user_id' => $this->targetUser->id,
+            'cm_custom_field_id' => $field->id,
+            'value' => ['PHP', 'Laravel'],
+        ]);
+
+        Livewire::test(UserCustomFieldsEditor::class, ['userId' => $this->targetUser->id])
+            ->assertSet("fieldValues.{$field->id}", ['PHP', 'Laravel']);
+    });
+
+    test('it deletes empty array values', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'skills',
+            'field_name' => 'Skills',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['PHP', 'Laravel', 'JavaScript'],
+            'is_active' => true,
+            'is_user_editable' => true,
+        ]);
+
+        CmCustomFieldValue::create([
+            'user_id' => $this->targetUser->id,
+            'cm_custom_field_id' => $field->id,
+            'value' => ['PHP', 'Laravel'],
+        ]);
+
+        Livewire::test(UserCustomFieldsEditor::class, ['userId' => $this->targetUser->id])
+            ->set("fieldValues.{$field->id}", [])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $exists = CmCustomFieldValue::where('user_id', $this->targetUser->id)
+            ->where('cm_custom_field_id', $field->id)
+            ->exists();
+
+        expect($exists)->toBeFalse();
+    });
+
+    test('it updates array values for multi_select with allow_multiple', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'skills',
+            'field_name' => 'Skills',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['PHP', 'Laravel', 'JavaScript', 'Vue.js'],
+            'is_active' => true,
+            'is_user_editable' => true,
+        ]);
+
+        CmCustomFieldValue::create([
+            'user_id' => $this->targetUser->id,
+            'cm_custom_field_id' => $field->id,
+            'value' => ['PHP', 'Laravel'],
+        ]);
+
+        Livewire::test(UserCustomFieldsEditor::class, ['userId' => $this->targetUser->id])
+            ->set("fieldValues.{$field->id}", ['JavaScript', 'Vue.js'])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $value = CmCustomFieldValue::where('user_id', $this->targetUser->id)
+            ->where('cm_custom_field_id', $field->id)
+            ->first();
+
+        expect($value->value)->toBe(['JavaScript', 'Vue.js']);
+    });
+
+    test('it validates array type for multi_select with allow_multiple', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'skills',
+            'field_name' => 'Skills',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['PHP', 'Laravel', 'JavaScript'],
+            'is_active' => true,
+            'is_user_editable' => true,
+        ]);
+
+        Livewire::test(UserCustomFieldsEditor::class, ['userId' => $this->targetUser->id])
+            ->set("fieldValues.{$field->id}", 'Not an array')
+            ->call('save')
+            ->assertHasErrors(["fieldValues.{$field->id}"]);
+    });
+
+    test('it handles single item array for multi_select with allow_multiple', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'skills',
+            'field_name' => 'Skills',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['PHP', 'Laravel', 'JavaScript'],
+            'is_active' => true,
+            'is_user_editable' => true,
+        ]);
+
+        Livewire::test(UserCustomFieldsEditor::class, ['userId' => $this->targetUser->id])
+            ->set("fieldValues.{$field->id}", ['PHP'])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $value = CmCustomFieldValue::where('user_id', $this->targetUser->id)
+            ->where('cm_custom_field_id', $field->id)
+            ->first();
+
+        expect($value->value)->toBeArray();
+        expect($value->value)->toBe(['PHP']);
+    });
+
+    test('admin can manage multi_select arrays for admin-only fields', function () {
+        $field = CmCustomField::create([
+            'field_key' => 'internal_tags',
+            'field_name' => 'Internal Tags',
+            'data_type' => 'multi_select',
+            'allow_multiple' => true,
+            'options' => ['VIP', 'Beta Tester', 'Early Adopter'],
+            'is_active' => true,
+            'is_user_editable' => false, // Admin only
+        ]);
+
+        Livewire::test(UserCustomFieldsEditor::class, ['userId' => $this->targetUser->id])
+            ->set("fieldValues.{$field->id}", ['VIP', 'Beta Tester'])
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $value = CmCustomFieldValue::where('user_id', $this->targetUser->id)
+            ->where('cm_custom_field_id', $field->id)
+            ->first();
+
+        expect($value->value)->toBeArray();
+        expect($value->value)->toBe(['VIP', 'Beta Tester']);
+    });
+});

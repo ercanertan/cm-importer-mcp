@@ -80,6 +80,9 @@
                                                 @elseif($customField->data_type === 'multi_select') bg-yellow-100 text-yellow-800
                                                 @endif">
                                                 {{ ucfirst(str_replace('_', ' ', $customField->data_type)) }}
+                                                @if($customField->data_type === 'multi_select' && $customField->allow_multiple)
+                                                    <span class="ml-1" title="Multiple selections allowed">✓</span>
+                                                @endif
                                             </span>
                                         </td>
                                         <td class="px-6 py-4 text-sm text-gray-500">
@@ -174,7 +177,7 @@
 
                         <div class="mb-4">
                             <label for="data_type" class="block text-sm font-medium text-gray-700">Data Type *</label>
-                            <select wire:model="data_type" id="data_type"
+                            <select wire:model.live="data_type" id="data_type"
                                     class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white text-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                                 <option value="text">Text</option>
                                 <option value="number">Number</option>
@@ -183,6 +186,17 @@
                             </select>
                             @error('data_type') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
                         </div>
+
+                        @if($data_type === 'multi_select')
+                            <div class="mb-4">
+                                <label class="flex items-center">
+                                    <input wire:model="allow_multiple" type="checkbox"
+                                           class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                                    <span class="ml-2 text-sm text-gray-700">Allow Multiple Selections</span>
+                                </label>
+                                <p class="text-xs text-gray-500 mt-1 ml-6">If checked, users can select multiple options. Otherwise, only single selection is allowed.</p>
+                            </div>
+                        @endif
 
                         <div class="mb-4">
                             <label for="options" class="block text-sm font-medium text-gray-700">Options (comma-separated, for multi_select)</label>
@@ -249,7 +263,7 @@
 
                         <div class="mb-4">
                             <label for="edit_data_type" class="block text-sm font-medium text-gray-700">Data Type *</label>
-                            <select wire:model="data_type" id="edit_data_type"
+                            <select wire:model.live="data_type" id="edit_data_type"
                                     class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white text-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                                 <option value="text">Text</option>
                                 <option value="number">Number</option>
@@ -258,6 +272,17 @@
                             </select>
                             @error('data_type') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
                         </div>
+
+                        @if($data_type === 'multi_select')
+                            <div class="mb-4">
+                                <label class="flex items-center">
+                                    <input wire:model="allow_multiple" type="checkbox"
+                                           class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                                    <span class="ml-2 text-sm text-gray-700">Allow Multiple Selections</span>
+                                </label>
+                                <p class="text-xs text-gray-500 mt-1 ml-6">If checked, users can select multiple options. Otherwise, only single selection is allowed.</p>
+                            </div>
+                        @endif
 
                         <div class="mb-4">
                             <label for="edit_options" class="block text-sm font-medium text-gray-700">Options (comma-separated, for multi_select)</label>

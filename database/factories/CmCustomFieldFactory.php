@@ -22,6 +22,7 @@ class CmCustomFieldFactory extends Factory
             'field_key' => $fieldKey,
             'field_name' => ucfirst($fieldKey),
             'data_type' => 'text',
+            'allow_multiple' => false,
             'options' => null,
             'is_active' => true,
             'last_seen_at' => now(),

@@ -52,6 +52,10 @@ class CustomFieldsEditor extends Component
             } elseif ($field['data_type'] === 'date') {
                 $fieldRules[] = 'nullable';
                 $fieldRules[] = 'date';
+            } elseif ($field['data_type'] === 'multi_select' && $field['allow_multiple']) {
+                // Allow array for multi-select with allow_multiple
+                $fieldRules[] = 'nullable';
+                $fieldRules[] = 'array';
             } else {
                 $fieldRules[] = 'nullable';
                 $fieldRules[] = 'string';
@@ -66,7 +70,8 @@ class CustomFieldsEditor extends Component
             foreach ($this->customFields as $field) {
                 $value = $this->fieldValues[$field['id']] ?? null;
 
-                if (empty($value)) {
+                // Check if value is empty (consider empty arrays as empty too)
+                if (empty($value) || (is_array($value) && count($value) === 0)) {
                     // Delete if value is empty
                     CmCustomFieldValue::where('user_id', Auth::id())
                         ->where('cm_custom_field_id', $field['id'])
