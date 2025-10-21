@@ -709,6 +709,7 @@
                                                         <th class="px-3 py-2 text-left text-xs font-semibold text-gray-900 uppercase tracking-wider">User</th>
                                                         <th class="px-3 py-2 text-left text-xs font-semibold text-gray-900 uppercase tracking-wider">Email</th>
                                                         <th class="px-3 py-2 text-left text-xs font-semibold text-gray-900 uppercase tracking-wider">Domain</th>
+                                                        <th class="px-3 py-2 text-left text-xs font-semibold text-gray-900 uppercase tracking-wider">Status</th>
                                                         <th class="px-3 py-2 text-left text-xs font-semibold text-gray-900 uppercase tracking-wider">Type</th>
                                                         <th class="px-3 py-2 text-left text-xs font-semibold text-gray-900 uppercase tracking-wider">Actions</th>
                                                     </tr>
@@ -730,6 +731,9 @@
                                                                 @else
                                                                     <span class="text-gray-400">N/A</span>
                                                                 @endif
+                                                            </td>
+                                                            <td class="px-3 py-2 text-sm text-gray-700">
+                                                                {{ $user->cm_status }}
                                                             </td>
                                                             <td class="px-3 py-2 text-sm">
                                                                 @if($user->membership->is_manual)
