@@ -716,7 +716,7 @@ class OrganizationManager extends Component
             ->with(['domain', 'organizations' => function ($query) {
                 $query->where('organizations.id', $this->organizationToManageId)
                     ->select('organizations.id', 'organizations.name')
-                    ->withPivot('is_manual');
+                    ->withPivot('is_manual', 'is_primary');
             }])
             ->where(function ($query) {
                 $query->where('fullname', 'like', '%' . $this->userSearch . '%')

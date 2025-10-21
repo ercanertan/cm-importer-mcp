@@ -37,8 +37,10 @@ class Organization extends Model
     public function usersMany(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'organization_user')
-            ->withPivot('is_manual')
-            ->withTimestamps();
+            ->withPivot('is_manual', 'is_primary')
+            ->withTimestamps()
+            ->as('membership')
+            ->using(\App\Models\OrganizationUser::class);
     }
 
     /**

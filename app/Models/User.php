@@ -105,8 +105,64 @@ class User extends Authenticatable
     public function organizations()
     {
         return $this->belongsToMany(Organization::class)
-            ->withPivot('is_manual')
-            ->withTimestamps();
+            ->withPivot('is_manual', 'is_primary')
+            ->withTimestamps()
+            ->as('membership')
+            ->using(\App\Models\OrganizationUser::class);
+    }
+
+    /**
+     * Get the primary organization for this user
+     */
+    public function primaryOrganization()
+    {
+        return $this->belongsToMany(Organization::class)
+            ->withPivot('is_manual', 'is_primary')
+            ->wherePivot('is_primary', true)
+            ->withTimestamps()
+            ->as('membership')
+            ->using(\App\Models\OrganizationUser::class)
+            ->first();
+    }
+
+    /**
+     * Set an organization as the primary organization for this user
+     * Ensures only one organization can be primary
+     */
+    public function setPrimaryOrganization(int $organizationId): bool
+    {
+        // Check if the user belongs to this organization
+        if (!$this->organizations()->where('organization_id', $organizationId)->exists()) {
+            return false;
+        }
+
+        // Use transaction to ensure atomicity
+        \DB::transaction(function () use ($organizationId) {
+            // Get all organization IDs for this user
+            $allOrgIds = $this->organizations()->pluck('organization_id')->toArray();
+
+            // Set all organizations to non-primary for this user
+            foreach ($allOrgIds as $orgId) {
+                $this->organizations()->updateExistingPivot($orgId, ['is_primary' => false]);
+            }
+
+            // Set the specified organization as primary
+            $this->organizations()->updateExistingPivot($organizationId, ['is_primary' => true]);
+        });
+
+        return true;
+    }
+
+    /**
+     * Check if a specific organization is the primary one for this user
+     */
+    public function isPrimaryOrganization(int $organizationId): bool
+    {
+        $org = $this->organizations()
+            ->where('organization_id', $organizationId)
+            ->first();
+
+        return $org && $org->membership->is_primary;
     }
 
     /**

@@ -76,6 +76,12 @@
                                                 class="text-indigo-700 hover:text-indigo-900 font-semibold mr-4">
                                             Manage Orgs
                                         </button>
+                                        @if($user->organizations_count > 1)
+                                            <button wire:click="openPrimaryOrgModal({{ $user->id }})"
+                                                    class="text-blue-700 hover:text-blue-900 font-semibold mr-4">
+                                                Primary Org
+                                            </button>
+                                        @endif
                                         <a href="{{ route('admin.users.custom-fields.edit', $user->id) }}"
                                            wire:navigate
                                            class="text-purple-700 hover:text-purple-900 font-semibold">
@@ -187,6 +193,102 @@
                             </button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- Primary Organization Modal -->
+    @if($showPrimaryOrgModal && $userToManage)
+        <div class="fixed z-50 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity z-40" aria-hidden="true"></div>
+                <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full relative z-50">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6">
+                        <div class="flex justify-between items-start mb-4">
+                            <h3 class="text-lg leading-6 font-bold text-gray-900">
+                                Set Primary Organization for {{ $userToManage->fullname }}
+                            </h3>
+                            <button wire:click="closePrimaryOrgModal" class="text-gray-400 hover:text-gray-600">
+                                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Flash Messages -->
+                        @if (session()->has('message'))
+                            <div class="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-md">
+                                {{ session('message') }}
+                            </div>
+                        @endif
+
+                        @if (session()->has('error'))
+                            <div class="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-md">
+                                {{ session('error') }}
+                            </div>
+                        @endif
+
+                        <!-- User Info -->
+                        <div class="mb-4 p-3 bg-gray-50 rounded-lg border-2 border-gray-200">
+                            <div class="text-sm">
+                                <span class="font-semibold text-gray-600">Email:</span>
+                                <span class="text-gray-900">{{ $userToManage->email }}</span>
+                            </div>
+                        </div>
+
+                        @if(count($userOrganizations) > 0)
+                            <div class="space-y-3">
+                                <p class="text-sm text-gray-600 mb-4">
+                                    Select the primary organization for this user. This will be used as their default organization.
+                                </p>
+
+                                @foreach($userOrganizations as $org)
+                                    <label class="flex items-center p-4 border rounded-lg cursor-pointer transition-colors
+                                        {{ $org['is_primary'] ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300' }}">
+                                        <input
+                                            type="radio"
+                                            wire:model.live="primaryOrganizationId"
+                                            wire:change="setPrimary({{ $org['id'] }})"
+                                            value="{{ $org['id'] }}"
+                                            class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                                        <div class="ml-3 flex-1">
+                                            <span class="block text-sm font-medium text-gray-900">
+                                                {{ $org['name'] }}
+                                            </span>
+                                            <div class="flex items-center mt-1 space-x-2">
+                                                @if($org['is_primary'])
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
+                                                        Primary
+                                                    </span>
+                                                @endif
+                                                @if($org['is_manual'])
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                                        Manual
+                                                    </span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </label>
+                                @endforeach
+                            </div>
+                        @else
+                            <div class="text-center py-8">
+                                <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                </svg>
+                                <p class="mt-4 text-sm text-gray-500">This user doesn't belong to any organizations yet.</p>
+                                <p class="mt-2 text-xs text-gray-400">Assign organizations first using "Manage Orgs".</p>
+                            </div>
+                        @endif
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        <button type="button" wire:click="closePrimaryOrgModal"
+                                class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:w-auto sm:text-sm">
+                            Close
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

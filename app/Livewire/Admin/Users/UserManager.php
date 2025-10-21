@@ -14,10 +14,13 @@ class UserManager extends Component
 
     public $search = '';
     public $showManageModal = false;
+    public $showPrimaryOrgModal = false;
     public $userToManage = null;
     public $selectedOrganizations = [];
     public $autoAssignedOrgs = [];
     public $manuallyAssignedOrgs = [];
+    public $primaryOrganizationId = null;
+    public $userOrganizations = [];
 
     protected $queryString = ['search'];
 
@@ -118,6 +121,70 @@ class UserManager extends Component
                 'user_id' => $this->userToManage->id
             ]);
             session()->flash('error', 'Failed to update organizations: ' . $e->getMessage());
+        }
+    }
+
+    public function openPrimaryOrgModal($userId)
+    {
+        $this->userToManage = User::with('organizations')->findOrFail($userId);
+
+        // Load user's organizations with primary status
+        $this->userOrganizations = $this->userToManage->organizations()
+            ->get()
+            ->map(function ($org) {
+                return [
+                    'id' => $org->id,
+                    'name' => $org->name,
+                    'is_primary' => $org->membership->is_primary,
+                    'is_manual' => $org->membership->is_manual,
+                ];
+            })
+            ->toArray();
+
+        // Get current primary organization
+        $primaryOrg = collect($this->userOrganizations)->firstWhere('is_primary', true);
+        $this->primaryOrganizationId = $primaryOrg['id'] ?? null;
+
+        $this->showPrimaryOrgModal = true;
+    }
+
+    public function closePrimaryOrgModal()
+    {
+        $this->showPrimaryOrgModal = false;
+        $this->userToManage = null;
+        $this->userOrganizations = [];
+        $this->primaryOrganizationId = null;
+    }
+
+    public function setPrimary($organizationId)
+    {
+        if (!$this->userToManage) {
+            session()->flash('error', 'No user selected.');
+            return;
+        }
+
+        // Attempt to set the primary organization
+        if ($this->userToManage->setPrimaryOrganization($organizationId)) {
+            // Reload user organizations
+            $this->userOrganizations = $this->userToManage->fresh()->organizations()
+                ->get()
+                ->map(function ($org) {
+                    return [
+                        'id' => $org->id,
+                        'name' => $org->name,
+                        'is_primary' => $org->membership->is_primary,
+                        'is_manual' => $org->membership->is_manual,
+                    ];
+                })
+                ->toArray();
+
+            // Update primary organization ID
+            $primaryOrg = collect($this->userOrganizations)->firstWhere('is_primary', true);
+            $this->primaryOrganizationId = $primaryOrg['id'] ?? null;
+
+            session()->flash('message', 'Primary organization updated successfully for ' . $this->userToManage->fullname . '.');
+        } else {
+            session()->flash('error', 'Failed to update primary organization.');
         }
     }
 }
