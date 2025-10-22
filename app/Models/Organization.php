@@ -87,12 +87,79 @@ class Organization extends Model
     /**
      * Get the conditions array
      * Returns a plain array to prevent Livewire serialization errors
+     * Supports both old format (conditions) and new format (items)
      */
     public function getConditions(): array
     {
-        $conditions = $this->conditional_rules['conditions'] ?? [];
+        // New format with nested groups
+        if (isset($this->conditional_rules['items'])) {
+            return json_decode(json_encode($this->conditional_rules['items']), true);
+        }
 
-        // Ensure it's always a plain array, not stdClass objects
+        // Old format - backward compatibility
+        $conditions = $this->conditional_rules['conditions'] ?? [];
         return json_decode(json_encode($conditions), true);
+    }
+
+    /**
+     * Check if organization uses new nested condition format
+     */
+    public function usesNestedConditions(): bool
+    {
+        return isset($this->conditional_rules['items']);
+    }
+
+    /**
+     * Convert old format conditions to new nested format
+     */
+    public function convertToNestedFormat(): array
+    {
+        if ($this->usesNestedConditions()) {
+            return $this->conditional_rules;
+        }
+
+        $oldConditions = $this->conditional_rules['conditions'] ?? [];
+        $logic = $this->conditional_rules['logic'] ?? 'AND';
+
+        // Convert each condition to new format with type
+        $items = array_map(function ($condition) {
+            return array_merge(['type' => 'condition'], $condition);
+        }, $oldConditions);
+
+        return [
+            'logic' => $logic,
+            'items' => $items,
+        ];
+    }
+
+    /**
+     * Get all conditions from nested structure (flattened)
+     * Useful for validation and display
+     */
+    public function getAllConditionsFlat(): array
+    {
+        $items = $this->getConditions();
+        return $this->flattenItems($items);
+    }
+
+    /**
+     * Recursively flatten nested items to get all conditions
+     */
+    protected function flattenItems(array $items): array
+    {
+        $flattened = [];
+
+        foreach ($items as $item) {
+            if (($item['type'] ?? 'condition') === 'condition') {
+                $flattened[] = $item;
+            } elseif (($item['type'] ?? '') === 'group') {
+                $flattened = array_merge(
+                    $flattened,
+                    $this->flattenItems($item['items'] ?? [])
+                );
+            }
+        }
+
+        return $flattened;
     }
 }

@@ -343,6 +343,7 @@ class SyncOrganizationConditionalJob implements ShouldQueue
 
     /**
      * Check if user meets the conditional rules
+     * Supports both old format (flat conditions) and new format (nested items)
      */
     protected function userMeetsConditions(User $user): bool
     {
@@ -350,6 +351,13 @@ class SyncOrganizationConditionalJob implements ShouldQueue
             ->pluck('value', 'cm_custom_field_id')
             ->toArray();
 
+        // Check if using new nested format
+        if (is_array($this->conditions) && isset($this->conditions[0]['type'])) {
+            // New format: evaluate items (can be conditions or groups)
+            return $this->evaluateItems($userCustomFields, $this->conditions, $this->conditionLogic);
+        }
+
+        // Old format: simple flat array evaluation
         if ($this->conditionLogic === 'AND') {
             foreach ($this->conditions as $condition) {
                 if (!$this->evaluateCondition($userCustomFields, $condition)) {
@@ -365,6 +373,51 @@ class SyncOrganizationConditionalJob implements ShouldQueue
             }
             return false;
         }
+    }
+
+    /**
+     * Evaluate an array of items (can be conditions or groups)
+     * Supports nested groups recursively
+     */
+    protected function evaluateItems(array $userCustomFields, array $items, string $logic): bool
+    {
+        if (empty($items)) {
+            return true;
+        }
+
+        if ($logic === 'AND') {
+            foreach ($items as $item) {
+                if (!$this->evaluateItem($userCustomFields, $item)) {
+                    return false;
+                }
+            }
+            return true;
+        } else { // OR
+            foreach ($items as $item) {
+                if ($this->evaluateItem($userCustomFields, $item)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Evaluate a single item (either a condition or a group)
+     */
+    protected function evaluateItem(array $userCustomFields, array $item): bool
+    {
+        $type = $item['type'] ?? 'condition';
+
+        if ($type === 'condition') {
+            return $this->evaluateCondition($userCustomFields, $item);
+        } elseif ($type === 'group') {
+            $groupLogic = $item['logic'] ?? 'AND';
+            $groupItems = $item['items'] ?? [];
+            return $this->evaluateItems($userCustomFields, $groupItems, $groupLogic);
+        }
+
+        return false;
     }
 
     /**

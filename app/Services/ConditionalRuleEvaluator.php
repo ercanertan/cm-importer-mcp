@@ -11,13 +11,29 @@ class ConditionalRuleEvaluator
 {
     /**
      * Check if a user meets an organization's conditional rules
+     * Supports both old format (conditions) and new format (items with nested groups)
      *
      * @param User $user
-     * @param array $conditionalRules Format: ['logic' => 'AND|OR', 'conditions' => [...]]
+     * @param array $conditionalRules Format: ['logic' => 'AND|OR', 'conditions' => [...]] or ['logic' => 'AND|OR', 'items' => [...]]
      * @return bool
      */
     public function userMeetsConditions(User $user, array $conditionalRules): bool
     {
+        // New format with nested items
+        if (isset($conditionalRules['items'])) {
+            if (empty($conditionalRules['items'])) {
+                return true;
+            }
+
+            $logic = $conditionalRules['logic'] ?? 'AND';
+            $userCustomFields = $user->customFieldValues()
+                ->pluck('value', 'cm_custom_field_id')
+                ->toArray();
+
+            return $this->evaluateItems($userCustomFields, $conditionalRules['items'], $logic);
+        }
+
+        // Old format - backward compatibility
         if (empty($conditionalRules) || empty($conditionalRules['conditions'])) {
             // No conditions means everyone matches (for backward compatibility)
             return true;
@@ -51,6 +67,60 @@ class ConditionalRuleEvaluator
     }
 
     /**
+     * Evaluate an array of items (can be conditions or groups)
+     * Supports nested groups recursively
+     *
+     * @param array $userCustomFields
+     * @param array $items
+     * @param string $logic
+     * @return bool
+     */
+    protected function evaluateItems(array $userCustomFields, array $items, string $logic): bool
+    {
+        if (empty($items)) {
+            return true;
+        }
+
+        if ($logic === 'AND') {
+            foreach ($items as $item) {
+                if (!$this->evaluateItem($userCustomFields, $item)) {
+                    return false;
+                }
+            }
+            return true;
+        } else { // OR
+            foreach ($items as $item) {
+                if ($this->evaluateItem($userCustomFields, $item)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Evaluate a single item (either a condition or a group)
+     *
+     * @param array $userCustomFields
+     * @param array $item
+     * @return bool
+     */
+    protected function evaluateItem(array $userCustomFields, array $item): bool
+    {
+        $type = $item['type'] ?? 'condition';
+
+        if ($type === 'condition') {
+            return $this->evaluateCondition($userCustomFields, $item);
+        } elseif ($type === 'group') {
+            $groupLogic = $item['logic'] ?? 'AND';
+            $groupItems = $item['items'] ?? [];
+            return $this->evaluateItems($userCustomFields, $groupItems, $groupLogic);
+        }
+
+        return false;
+    }
+
+    /**
      * Batch evaluate users against an organization's conditional rules
      * Returns array of user IDs that match the conditions
      *
@@ -66,8 +136,48 @@ class ConditionalRuleEvaluator
         }
 
         $conditionalRules = $organization->conditional_rules;
-        $conditions = $conditionalRules['conditions'] ?? [];
         $logic = $conditionalRules['logic'] ?? 'AND';
+
+        // New format with nested items
+        if (isset($conditionalRules['items'])) {
+            if (empty($conditionalRules['items'])) {
+                return $users->pluck('id')->toArray();
+            }
+
+            // Get all user IDs
+            $userIds = $users->pluck('id')->toArray();
+
+            if (empty($userIds)) {
+                return [];
+            }
+
+            // Load all custom field values for these users in one query
+            $customFieldValues = DB::table('cm_custom_field_values')
+                ->whereIn('user_id', $userIds)
+                ->select('user_id', 'cm_custom_field_id', 'value')
+                ->get()
+                ->groupBy('user_id')
+                ->map(function ($values) {
+                    return $values->pluck('value', 'cm_custom_field_id')->toArray();
+                })
+                ->toArray();
+
+            // Evaluate each user using nested items
+            $matchingUserIds = [];
+
+            foreach ($userIds as $userId) {
+                $userFields = $customFieldValues[$userId] ?? [];
+
+                if ($this->evaluateItems($userFields, $conditionalRules['items'], $logic)) {
+                    $matchingUserIds[] = $userId;
+                }
+            }
+
+            return $matchingUserIds;
+        }
+
+        // Old format - backward compatibility
+        $conditions = $conditionalRules['conditions'] ?? [];
 
         if (empty($conditions)) {
             return $users->pluck('id')->toArray();
@@ -196,12 +306,9 @@ class ConditionalRuleEvaluator
      */
     public function evaluateRowData(array $rowData, array $fieldKeyToIdMap, array $conditionalRules): bool
     {
-        if (empty($conditionalRules) || empty($conditionalRules['conditions'])) {
+        if (empty($conditionalRules)) {
             return true;
         }
-
-        $conditions = $conditionalRules['conditions'];
-        $logic = $conditionalRules['logic'] ?? 'AND';
 
         // Convert row data (field_key => value) to (field_id => value)
         $userCustomFields = [];
@@ -210,6 +317,24 @@ class ConditionalRuleEvaluator
                 $userCustomFields[$fieldKeyToIdMap[$fieldKey]] = $value;
             }
         }
+
+        // New format with nested items
+        if (isset($conditionalRules['items'])) {
+            if (empty($conditionalRules['items'])) {
+                return true;
+            }
+
+            $logic = $conditionalRules['logic'] ?? 'AND';
+            return $this->evaluateItems($userCustomFields, $conditionalRules['items'], $logic);
+        }
+
+        // Old format - backward compatibility
+        if (empty($conditionalRules['conditions'])) {
+            return true;
+        }
+
+        $conditions = $conditionalRules['conditions'];
+        $logic = $conditionalRules['logic'] ?? 'AND';
 
         return $this->evaluateBatchConditions($userCustomFields, $conditions, $logic);
     }

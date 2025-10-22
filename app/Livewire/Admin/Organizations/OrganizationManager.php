@@ -54,8 +54,12 @@ class OrganizationManager extends Component
     public $syncUsers = true;
 
     // Advanced create fields
-    public $conditions = [];
+    public $conditions = []; // Deprecated - for backward compatibility
     public $conditionLogic = 'AND'; // AND or OR
+
+    // New nested structure for groups
+    public $items = []; // Array of groups, each group contains conditions
+    public $useNestedFormat = true; // Always use new nested format for new orgs
 
     protected $queryString = ['search'];
 
@@ -65,15 +69,19 @@ class OrganizationManager extends Component
     }
 
     /**
-     * Livewire hydrate hook - ensures conditions array is properly normalized
+     * Livewire hydrate hook - ensures conditions/items arrays are properly normalized
      * This prevents stdClass objects from breaking array access in Blade templates
      */
     public function hydrate()
     {
-        // Normalize conditions to plain array after hydration
-        // This is crucial for the disabled attribute check in the value input field
+        // Normalize conditions to plain array after hydration (backward compatibility)
         if (isset($this->conditions) && is_array($this->conditions)) {
             $this->conditions = json_decode(json_encode($this->conditions), true);
+        }
+
+        // Normalize items to plain array after hydration
+        if (isset($this->items) && is_array($this->items)) {
+            $this->items = json_decode(json_encode($this->items), true);
         }
     }
 
@@ -142,10 +150,19 @@ class OrganizationManager extends Component
 
     public function openAdvancedCreateModal()
     {
-        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
+        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic', 'items', 'useNestedFormat']);
         $this->is_active = true;
         $this->conditionLogic = 'AND';
-        $this->conditions = []; // Start with empty conditions
+        $this->useNestedFormat = true;
+
+        // Start with one empty group for better UX
+        $this->items = [
+            [
+                'type' => 'group',
+                'logic' => 'AND',
+                'items' => []
+            ]
+        ];
 
         $this->showAdvancedCreateModal = true;
     }
@@ -153,7 +170,7 @@ class OrganizationManager extends Component
     public function closeAdvancedCreateModal()
     {
         $this->showAdvancedCreateModal = false;
-        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
+        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic', 'items', 'useNestedFormat']);
         $this->resetValidation();
     }
 
@@ -171,7 +188,30 @@ class OrganizationManager extends Component
         $this->is_active = $organization->is_active;
         $this->domains = $organization->domains->pluck('domain')->implode(', ');
         $this->conditionLogic = $organization->getConditionLogic();
-        $this->conditions = $organization->getConditions();
+
+        // Check if organization uses new nested format
+        if ($organization->usesNestedConditions()) {
+            // Load nested format directly
+            $this->useNestedFormat = true;
+            $this->items = $organization->getConditions(); // Already returns items array
+            $this->conditions = []; // Clear old format
+        } else {
+            // Auto-convert old format to new nested format
+            $this->useNestedFormat = true;
+            $oldConditions = $organization->getConditions();
+
+            // Wrap old conditions in a single group
+            $this->items = [
+                [
+                    'type' => 'group',
+                    'logic' => $this->conditionLogic,
+                    'items' => array_map(function ($condition) {
+                        return array_merge(['type' => 'condition'], $condition);
+                    }, $oldConditions)
+                ]
+            ];
+            $this->conditions = []; // Clear old format
+        }
 
         // Store only ID and name (using #[Locked] attribute for security)
         $this->organizationToEditAdvanced = $organization->only(['id', 'name']);
@@ -183,7 +223,7 @@ class OrganizationManager extends Component
     {
         $this->showAdvancedEditModal = false;
         $this->organizationToEditAdvanced = null;
-        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
+        $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic', 'items', 'useNestedFormat']);
         $this->resetValidation();
     }
 
@@ -191,17 +231,36 @@ class OrganizationManager extends Component
     {
         $orgId = is_array($this->organizationToEditAdvanced) ? $this->organizationToEditAdvanced['id'] : $this->organizationToEditAdvanced->id;
 
+        // Validate nested structure
         $this->validate([
             'name' => 'required|string|max:255|unique:organizations,name,' . $orgId,
             'description' => 'nullable|string',
             'is_active' => 'boolean',
             'domains' => 'required|string',
             'conditionLogic' => 'required|in:AND,OR',
-            'conditions' => 'required|array|min:1',
-            'conditions.*.field_id' => 'required|exists:cm_custom_fields,id',
-            'conditions.*.operator' => 'required|in:equals,not_equals,contains,not_contains,starts_with,ends_with,is_empty,is_not_empty',
-            'conditions.*.value' => 'nullable|string',
+            'items' => 'required|array|min:1',
+            'items.*.type' => 'required|in:group',
+            'items.*.logic' => 'required|in:AND,OR',
+            'items.*.items' => 'required|array',
+            'items.*.items.*.type' => 'required|in:condition',
+            'items.*.items.*.field_id' => 'required|exists:cm_custom_fields,id',
+            'items.*.items.*.operator' => 'required|in:equals,not_equals,contains,not_contains,starts_with,ends_with,is_empty,is_not_empty',
+            'items.*.items.*.value' => 'nullable|string',
         ]);
+
+        // Ensure at least one group has at least one condition
+        $hasConditions = false;
+        foreach ($this->items as $group) {
+            if (!empty($group['items'])) {
+                $hasConditions = true;
+                break;
+            }
+        }
+
+        if (!$hasConditions) {
+            session()->flash('error', 'At least one group must have at least one condition.');
+            return;
+        }
 
         try {
             // Reload organization to avoid serialization issues
@@ -213,7 +272,7 @@ class OrganizationManager extends Component
                 'is_active' => $this->is_active,
                 'conditional_rules' => [
                     'logic' => $this->conditionLogic,
-                    'conditions' => $this->conditions,
+                    'items' => $this->items,
                 ],
             ]);
 
@@ -234,18 +293,19 @@ class OrganizationManager extends Component
                     'organization_id' => $organization->id,
                     'organization_name' => $organization->name,
                     'domains' => $domainList,
-                    'conditions' => $this->conditions,
+                    'items' => $this->items, // New nested format
                     'condition_logic' => $this->conditionLogic,
                     'action' => 'update',
                 ],
             ]);
 
             // Dispatch the job to re-sync users based on updated conditions
+            // Job will detect nested format by checking for 'type' key in items
             \App\Jobs\SyncOrganizationConditionalJob::dispatch(
                 $syncLog->id,
                 $organization->id,
                 $domainList,
-                $this->conditions,
+                $this->items, // Pass items array (job will auto-detect nested format)
                 $this->conditionLogic
             );
 
@@ -265,6 +325,10 @@ class OrganizationManager extends Component
         }
     }
 
+    // ===========================================
+    // OLD FORMAT METHODS (backward compatibility)
+    // ===========================================
+
     public function addCondition()
     {
         $this->conditions[] = [
@@ -280,6 +344,73 @@ class OrganizationManager extends Component
         $this->conditions = array_values($this->conditions); // Re-index array
     }
 
+    // ========================================
+    // NEW NESTED FORMAT METHODS (groups)
+    // ========================================
+
+    /**
+     * Add a new group to the root level
+     */
+    public function addGroup()
+    {
+        $this->items[] = [
+            'type' => 'group',
+            'logic' => 'AND',
+            'items' => []
+        ];
+    }
+
+    /**
+     * Remove a group from the root level
+     */
+    public function removeGroup($groupIndex)
+    {
+        unset($this->items[$groupIndex]);
+        $this->items = array_values($this->items); // Re-index array
+    }
+
+    /**
+     * Add a condition to a specific group
+     */
+    public function addConditionToGroup($groupIndex)
+    {
+        if (!isset($this->items[$groupIndex])) {
+            return;
+        }
+
+        $this->items[$groupIndex]['items'][] = [
+            'type' => 'condition',
+            'field_id' => null,
+            'operator' => 'equals',
+            'value' => ''
+        ];
+    }
+
+    /**
+     * Remove a condition from a specific group
+     */
+    public function removeConditionFromGroup($groupIndex, $conditionIndex)
+    {
+        if (!isset($this->items[$groupIndex]['items'][$conditionIndex])) {
+            return;
+        }
+
+        unset($this->items[$groupIndex]['items'][$conditionIndex]);
+        $this->items[$groupIndex]['items'] = array_values($this->items[$groupIndex]['items']);
+    }
+
+    /**
+     * Update the logic operator for a specific group
+     */
+    public function updateGroupLogic($groupIndex, $logic)
+    {
+        if (!isset($this->items[$groupIndex])) {
+            return;
+        }
+
+        $this->items[$groupIndex]['logic'] = $logic;
+    }
+
     #[\Livewire\Attributes\Computed]
     public function availableCustomFields()
     {
@@ -290,17 +421,36 @@ class OrganizationManager extends Component
 
     public function createAdvancedOrganization()
     {
+        // Validate nested structure
         $this->validate([
             'name' => 'required|string|max:255|unique:organizations,name',
             'description' => 'nullable|string',
             'is_active' => 'boolean',
             'domains' => 'required|string',
             'conditionLogic' => 'required|in:AND,OR',
-            'conditions' => 'required|array|min:1',
-            'conditions.*.field_id' => 'required|exists:cm_custom_fields,id',
-            'conditions.*.operator' => 'required|in:equals,not_equals,contains,not_contains,starts_with,ends_with,is_empty,is_not_empty',
-            'conditions.*.value' => 'nullable|string',
+            'items' => 'required|array|min:1',
+            'items.*.type' => 'required|in:group',
+            'items.*.logic' => 'required|in:AND,OR',
+            'items.*.items' => 'required|array',
+            'items.*.items.*.type' => 'required|in:condition',
+            'items.*.items.*.field_id' => 'required|exists:cm_custom_fields,id',
+            'items.*.items.*.operator' => 'required|in:equals,not_equals,contains,not_contains,starts_with,ends_with,is_empty,is_not_empty',
+            'items.*.items.*.value' => 'nullable|string',
         ]);
+
+        // Ensure at least one group has at least one condition
+        $hasConditions = false;
+        foreach ($this->items as $group) {
+            if (!empty($group['items'])) {
+                $hasConditions = true;
+                break;
+            }
+        }
+
+        if (!$hasConditions) {
+            session()->flash('error', 'At least one group must have at least one condition.');
+            return;
+        }
 
         try {
             $organization = Organization::create([
@@ -309,7 +459,7 @@ class OrganizationManager extends Component
                 'is_active' => $this->is_active,
                 'conditional_rules' => [
                     'logic' => $this->conditionLogic,
-                    'conditions' => $this->conditions,
+                    'items' => $this->items,
                 ],
             ]);
 
@@ -330,17 +480,18 @@ class OrganizationManager extends Component
                     'organization_id' => $organization->id,
                     'organization_name' => $organization->name,
                     'domains' => $domainList,
-                    'conditions' => $this->conditions,
+                    'items' => $this->items, // New nested format
                     'condition_logic' => $this->conditionLogic,
                 ],
             ]);
 
             // Dispatch the job to run in the background
+            // Job will detect nested format by checking for 'type' key in items
             \App\Jobs\SyncOrganizationConditionalJob::dispatch(
                 $syncLog->id,
                 $organization->id,
                 $domainList,
-                $this->conditions,
+                $this->items, // Pass items array (job will auto-detect nested format)
                 $this->conditionLogic
             );
 

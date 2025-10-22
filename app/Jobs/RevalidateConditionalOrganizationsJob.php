@@ -156,8 +156,19 @@ class RevalidateConditionalOrganizationsJob implements ShouldQueue
         }
 
         // Filter in PHP for database compatibility (SQLite doesn't support JSON_LENGTH)
+        // Supports both old format (conditions) and new format (items)
         return $query->get()->filter(function ($org) {
-            return !empty($org->conditional_rules) && !empty($org->conditional_rules['conditions']);
+            if (empty($org->conditional_rules)) {
+                return false;
+            }
+
+            // New format with nested items
+            if (isset($org->conditional_rules['items'])) {
+                return !empty($org->conditional_rules['items']);
+            }
+
+            // Old format with conditions
+            return !empty($org->conditional_rules['conditions']);
         });
     }
 

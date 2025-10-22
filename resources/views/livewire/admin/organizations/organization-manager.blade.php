@@ -248,105 +248,143 @@
                                 <p class="mt-1 text-xs text-gray-600">Users from these domains will be evaluated against the conditions below</p>
                             </div>
 
-                            <!-- Conditional Logic Builder -->
+                            <!-- Nested Conditional Logic Builder -->
                             <div class="mb-4 pt-4 border-t-2 border-purple-200">
                                 <div class="flex items-center justify-between mb-3">
                                     <label class="block text-sm font-semibold text-gray-900">
                                         <svg class="inline w-5 h-5 mr-1 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
                                         </svg>
-                                        Conditional Rules *
+                                        Conditional Rule Groups *
                                     </label>
-                                    <button type="button" wire:click="addCondition"
+                                    <button type="button" wire:click="addGroup"
                                             class="bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold py-1 px-3 rounded">
-                                        + Add Condition
+                                        + Add Group
                                     </button>
                                 </div>
 
-                                <!-- Condition Logic Selector -->
-                                <div class="mb-3 flex items-center space-x-3 bg-gray-50 p-3 rounded-lg border-2 border-gray-200">
-                                    <span class="text-sm font-semibold text-gray-700">Match:</span>
+                                <!-- Root Logic Selector (between groups) -->
+                                <div class="mb-3 flex items-center space-x-3 bg-indigo-50 p-3 rounded-lg border-2 border-indigo-300">
+                                    <span class="text-sm font-semibold text-indigo-900">Groups Logic:</span>
                                     <label class="flex items-center cursor-pointer">
                                         <input type="radio" wire:model="conditionLogic" value="AND"
                                                class="w-4 h-4 text-purple-600 border-gray-300 focus:ring-purple-500">
-                                        <span class="ml-2 text-sm font-medium text-gray-900">ALL conditions (AND)</span>
+                                        <span class="ml-2 text-sm font-medium text-gray-900">ALL groups must match (AND)</span>
                                     </label>
                                     <label class="flex items-center cursor-pointer">
                                         <input type="radio" wire:model="conditionLogic" value="OR"
                                                class="w-4 h-4 text-purple-600 border-gray-300 focus:ring-purple-500">
-                                        <span class="ml-2 text-sm font-medium text-gray-900">ANY condition (OR)</span>
+                                        <span class="ml-2 text-sm font-medium text-gray-900">ANY group can match (OR)</span>
                                     </label>
                                 </div>
 
-                                <!-- Conditions List -->
-                                <div class="space-y-3">
-                                    @forelse($conditions as $index => $condition)
-                                        <div class="border-2 border-purple-200 rounded-lg p-3 bg-purple-50" wire:key="condition-{{ $index }}">
-                                            <div class="flex items-start space-x-2">
-                                                <div class="flex-1 grid grid-cols-3 gap-2">
-                                                    <!-- Custom Field -->
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-700 mb-1">Custom Field</label>
-                                                        <select wire:model="conditions.{{ $index }}.field_id"
-                                                                class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5">
-                                                            <option value="">Select field...</option>
-                                                            @foreach($this->availableCustomFields as $field)
-                                                                <option value="{{ $field->id }}">{{ $field->field_name }}</option>
-                                                            @endforeach
+                                <!-- Groups List -->
+                                <div class="space-y-4">
+                                    @forelse($items as $groupIndex => $group)
+                                        <div class="border-4 border-purple-300 rounded-lg p-4 bg-gradient-to-br from-purple-50 to-purple-100 shadow-md" wire:key="group-{{ $groupIndex }}">
+                                            <!-- Group Header -->
+                                            <div class="flex items-center justify-between mb-3">
+                                                <div class="flex items-center space-x-3">
+                                                    <span class="text-sm font-bold text-purple-900">Group {{ $groupIndex + 1 }}</span>
+                                                    <div class="flex items-center space-x-2">
+                                                        <span class="text-xs font-semibold text-purple-700">Match:</span>
+                                                        <select wire:model="items.{{ $groupIndex }}.logic"
+                                                                class="text-xs border-2 border-purple-400 text-purple-900 font-bold rounded px-2 py-1 bg-white">
+                                                            <option value="AND">ALL conditions (AND)</option>
+                                                            <option value="OR">ANY condition (OR)</option>
                                                         </select>
-                                                        @error('conditions.' . $index . '.field_id')
-                                                            <span class="text-red-600 text-xs">{{ $message }}</span>
-                                                        @enderror
-                                                    </div>
-
-                                                    <!-- Operator -->
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-700 mb-1">Operator</label>
-                                                        <select wire:model.live="conditions.{{ $index }}.operator"
-                                                                class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5">
-                                                            <option value="equals">Equals</option>
-                                                            <option value="not_equals">Not Equals</option>
-                                                            <option value="contains">Contains</option>
-                                                            <option value="not_contains">Not Contains</option>
-                                                            <option value="starts_with">Starts With</option>
-                                                            <option value="ends_with">Ends With</option>
-                                                            <option value="is_empty">Is Empty</option>
-                                                            <option value="is_not_empty">Is Not Empty</option>
-                                                        </select>
-                                                        @error('conditions.' . $index . '.operator')
-                                                            <span class="text-red-600 text-xs">{{ $message }}</span>
-                                                        @enderror
-                                                    </div>
-
-                                                    <!-- Value -->
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-700 mb-1">Value</label>
-                                                        <input type="text" wire:model="conditions.{{ $index }}.value"
-                                                               placeholder="Value to compare..."
-                                                               class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                                               @if(in_array($conditions[$index]['operator'] ?? '', ['is_empty', 'is_not_empty'])) disabled @endif>
-                                                        @error('conditions.' . $index . '.value')
-                                                            <span class="text-red-600 text-xs">{{ $message }}</span>
-                                                        @enderror
                                                     </div>
                                                 </div>
+                                                <div class="flex items-center space-x-2">
+                                                    <button type="button" wire:click="addConditionToGroup({{ $groupIndex }})"
+                                                            class="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-2 rounded">
+                                                        + Add Condition
+                                                    </button>
+                                                    <button type="button" wire:click="removeGroup({{ $groupIndex }})"
+                                                            class="text-red-600 hover:text-red-800">
+                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
 
-                                                <!-- Remove Button -->
-                                                <button type="button" wire:click="removeCondition({{ $index }})"
-                                                        class="mt-6 text-red-600 hover:text-red-800">
-                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                                                    </svg>
-                                                </button>
+                                            <!-- Conditions within Group -->
+                                            <div class="space-y-2">
+                                                @forelse($group['items'] ?? [] as $conditionIndex => $condition)
+                                                    <div class="border-2 border-green-300 rounded-lg p-3 bg-white shadow-sm" wire:key="group-{{ $groupIndex }}-condition-{{ $conditionIndex }}">
+                                                        <div class="flex items-start space-x-2">
+                                                            <div class="flex-1 grid grid-cols-3 gap-2">
+                                                                <!-- Custom Field -->
+                                                                <div>
+                                                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Custom Field</label>
+                                                                    <select wire:model="items.{{ $groupIndex }}.items.{{ $conditionIndex }}.field_id"
+                                                                            class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 px-2 py-1.5">
+                                                                        <option value="">Select field...</option>
+                                                                        @foreach($this->availableCustomFields as $field)
+                                                                            <option value="{{ $field->id }}">{{ $field->field_name }}</option>
+                                                                        @endforeach
+                                                                    </select>
+                                                                    @error('items.' . $groupIndex . '.items.' . $conditionIndex . '.field_id')
+                                                                        <span class="text-red-600 text-xs">{{ $message }}</span>
+                                                                    @enderror
+                                                                </div>
+
+                                                                <!-- Operator -->
+                                                                <div>
+                                                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Operator</label>
+                                                                    <select wire:model.live="items.{{ $groupIndex }}.items.{{ $conditionIndex }}.operator"
+                                                                            class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 px-2 py-1.5">
+                                                                        <option value="equals">Equals</option>
+                                                                        <option value="not_equals">Not Equals</option>
+                                                                        <option value="contains">Contains</option>
+                                                                        <option value="not_contains">Not Contains</option>
+                                                                        <option value="starts_with">Starts With</option>
+                                                                        <option value="ends_with">Ends With</option>
+                                                                        <option value="is_empty">Is Empty</option>
+                                                                        <option value="is_not_empty">Is Not Empty</option>
+                                                                    </select>
+                                                                    @error('items.' . $groupIndex . '.items.' . $conditionIndex . '.operator')
+                                                                        <span class="text-red-600 text-xs">{{ $message }}</span>
+                                                                    @enderror
+                                                                </div>
+
+                                                                <!-- Value -->
+                                                                <div>
+                                                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Value</label>
+                                                                    <input type="text" wire:model="items.{{ $groupIndex }}.items.{{ $conditionIndex }}.value"
+                                                                           placeholder="Value to compare..."
+                                                                           class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 px-2 py-1.5 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                                           @if(in_array($group['items'][$conditionIndex]['operator'] ?? '', ['is_empty', 'is_not_empty'])) disabled @endif>
+                                                                    @error('items.' . $groupIndex . '.items.' . $conditionIndex . '.value')
+                                                                        <span class="text-red-600 text-xs">{{ $message }}</span>
+                                                                    @enderror
+                                                                </div>
+                                                            </div>
+
+                                                            <!-- Remove Condition Button -->
+                                                            <button type="button" wire:click="removeConditionFromGroup({{ $groupIndex }}, {{ $conditionIndex }})"
+                                                                    class="mt-6 text-red-600 hover:text-red-800">
+                                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                @empty
+                                                    <div class="text-center p-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg">
+                                                        <p class="text-xs text-gray-600 font-medium">No conditions in this group. Click "Add Condition" to start.</p>
+                                                    </div>
+                                                @endforelse
                                             </div>
                                         </div>
                                     @empty
                                         <div class="text-center p-4 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg">
-                                            <p class="text-sm text-gray-600 font-medium">No conditions added yet. Click "Add Condition" to start.</p>
+                                            <p class="text-sm text-gray-600 font-medium">No groups added yet. Click "Add Group" to start building your rules.</p>
                                         </div>
                                     @endforelse
                                 </div>
-                                @error('conditions') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
+                                @error('items') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
                             </div>
                         </div>
                         <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
@@ -493,105 +531,143 @@
                                 <p class="mt-1 text-xs text-gray-600">Users from these domains will be evaluated against the conditions below</p>
                             </div>
 
-                            <!-- Conditional Logic Builder -->
+                            <!-- Nested Conditional Logic Builder -->
                             <div class="mb-4 pt-4 border-t-2 border-purple-200">
                                 <div class="flex items-center justify-between mb-3">
                                     <label class="block text-sm font-semibold text-gray-900">
                                         <svg class="inline w-5 h-5 mr-1 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
                                         </svg>
-                                        Conditional Rules *
+                                        Conditional Rule Groups *
                                     </label>
-                                    <button type="button" wire:click="addCondition"
+                                    <button type="button" wire:click="addGroup"
                                             class="bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold py-1 px-3 rounded">
-                                        + Add Condition
+                                        + Add Group
                                     </button>
                                 </div>
 
-                                <!-- Condition Logic Selector -->
-                                <div class="mb-3 flex items-center space-x-3 bg-gray-50 p-3 rounded-lg border-2 border-gray-200">
-                                    <span class="text-sm font-semibold text-gray-700">Match:</span>
+                                <!-- Root Logic Selector (between groups) -->
+                                <div class="mb-3 flex items-center space-x-3 bg-indigo-50 p-3 rounded-lg border-2 border-indigo-300">
+                                    <span class="text-sm font-semibold text-indigo-900">Groups Logic:</span>
                                     <label class="flex items-center cursor-pointer">
                                         <input type="radio" wire:model="conditionLogic" value="AND"
                                                class="w-4 h-4 text-purple-600 border-gray-300 focus:ring-purple-500">
-                                        <span class="ml-2 text-sm font-medium text-gray-900">ALL conditions (AND)</span>
+                                        <span class="ml-2 text-sm font-medium text-gray-900">ALL groups must match (AND)</span>
                                     </label>
                                     <label class="flex items-center cursor-pointer">
                                         <input type="radio" wire:model="conditionLogic" value="OR"
                                                class="w-4 h-4 text-purple-600 border-gray-300 focus:ring-purple-500">
-                                        <span class="ml-2 text-sm font-medium text-gray-900">ANY condition (OR)</span>
+                                        <span class="ml-2 text-sm font-medium text-gray-900">ANY group can match (OR)</span>
                                     </label>
                                 </div>
 
-                                <!-- Conditions List -->
-                                <div class="space-y-3">
-                                    @forelse($conditions as $index => $condition)
-                                        <div class="border-2 border-purple-200 rounded-lg p-3 bg-purple-50" wire:key="edit-condition-{{ $index }}">
-                                            <div class="flex items-start space-x-2">
-                                                <div class="flex-1 grid grid-cols-3 gap-2">
-                                                    <!-- Custom Field -->
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-700 mb-1">Custom Field</label>
-                                                        <select wire:model="conditions.{{ $index }}.field_id"
-                                                                class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5">
-                                                            <option value="">Select field...</option>
-                                                            @foreach($this->availableCustomFields as $field)
-                                                                <option value="{{ $field->id }}">{{ $field->field_name }}</option>
-                                                            @endforeach
+                                <!-- Groups List -->
+                                <div class="space-y-4">
+                                    @forelse($items as $groupIndex => $group)
+                                        <div class="border-4 border-purple-300 rounded-lg p-4 bg-gradient-to-br from-purple-50 to-purple-100 shadow-md" wire:key="edit-group-{{ $groupIndex }}">
+                                            <!-- Group Header -->
+                                            <div class="flex items-center justify-between mb-3">
+                                                <div class="flex items-center space-x-3">
+                                                    <span class="text-sm font-bold text-purple-900">Group {{ $groupIndex + 1 }}</span>
+                                                    <div class="flex items-center space-x-2">
+                                                        <span class="text-xs font-semibold text-purple-700">Match:</span>
+                                                        <select wire:model="items.{{ $groupIndex }}.logic"
+                                                                class="text-xs border-2 border-purple-400 text-purple-900 font-bold rounded px-2 py-1 bg-white">
+                                                            <option value="AND">ALL conditions (AND)</option>
+                                                            <option value="OR">ANY condition (OR)</option>
                                                         </select>
-                                                        @error('conditions.' . $index . '.field_id')
-                                                            <span class="text-red-600 text-xs">{{ $message }}</span>
-                                                        @enderror
-                                                    </div>
-
-                                                    <!-- Operator -->
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-700 mb-1">Operator</label>
-                                                        <select wire:model.live="conditions.{{ $index }}.operator"
-                                                                class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5">
-                                                            <option value="equals">Equals</option>
-                                                            <option value="not_equals">Not Equals</option>
-                                                            <option value="contains">Contains</option>
-                                                            <option value="not_contains">Not Contains</option>
-                                                            <option value="starts_with">Starts With</option>
-                                                            <option value="ends_with">Ends With</option>
-                                                            <option value="is_empty">Is Empty</option>
-                                                            <option value="is_not_empty">Is Not Empty</option>
-                                                        </select>
-                                                        @error('conditions.' . $index . '.operator')
-                                                            <span class="text-red-600 text-xs">{{ $message }}</span>
-                                                        @enderror
-                                                    </div>
-
-                                                    <!-- Value -->
-                                                    <div>
-                                                        <label class="block text-xs font-semibold text-gray-700 mb-1">Value</label>
-                                                        <input type="text" wire:model="conditions.{{ $index }}.value"
-                                                               placeholder="Value to compare..."
-                                                               class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 px-2 py-1.5 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                                               @if(in_array($conditions[$index]['operator'] ?? '', ['is_empty', 'is_not_empty'])) disabled @endif>
-                                                        @error('conditions.' . $index . '.value')
-                                                            <span class="text-red-600 text-xs">{{ $message }}</span>
-                                                        @enderror
                                                     </div>
                                                 </div>
+                                                <div class="flex items-center space-x-2">
+                                                    <button type="button" wire:click="addConditionToGroup({{ $groupIndex }})"
+                                                            class="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-1 px-2 rounded">
+                                                        + Add Condition
+                                                    </button>
+                                                    <button type="button" wire:click="removeGroup({{ $groupIndex }})"
+                                                            class="text-red-600 hover:text-red-800">
+                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
 
-                                                <!-- Remove Button -->
-                                                <button type="button" wire:click="removeCondition({{ $index }})"
-                                                        class="mt-6 text-red-600 hover:text-red-800">
-                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                                                    </svg>
-                                                </button>
+                                            <!-- Conditions within Group -->
+                                            <div class="space-y-2">
+                                                @forelse($group['items'] ?? [] as $conditionIndex => $condition)
+                                                    <div class="border-2 border-green-300 rounded-lg p-3 bg-white shadow-sm" wire:key="edit-group-{{ $groupIndex }}-condition-{{ $conditionIndex }}">
+                                                        <div class="flex items-start space-x-2">
+                                                            <div class="flex-1 grid grid-cols-3 gap-2">
+                                                                <!-- Custom Field -->
+                                                                <div>
+                                                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Custom Field</label>
+                                                                    <select wire:model="items.{{ $groupIndex }}.items.{{ $conditionIndex }}.field_id"
+                                                                            class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 px-2 py-1.5">
+                                                                        <option value="">Select field...</option>
+                                                                        @foreach($this->availableCustomFields as $field)
+                                                                            <option value="{{ $field->id }}">{{ $field->field_name }}</option>
+                                                                        @endforeach
+                                                                    </select>
+                                                                    @error('items.' . $groupIndex . '.items.' . $conditionIndex . '.field_id')
+                                                                        <span class="text-red-600 text-xs">{{ $message }}</span>
+                                                                    @enderror
+                                                                </div>
+
+                                                                <!-- Operator -->
+                                                                <div>
+                                                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Operator</label>
+                                                                    <select wire:model.live="items.{{ $groupIndex }}.items.{{ $conditionIndex }}.operator"
+                                                                            class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 px-2 py-1.5">
+                                                                        <option value="equals">Equals</option>
+                                                                        <option value="not_equals">Not Equals</option>
+                                                                        <option value="contains">Contains</option>
+                                                                        <option value="not_contains">Not Contains</option>
+                                                                        <option value="starts_with">Starts With</option>
+                                                                        <option value="ends_with">Ends With</option>
+                                                                        <option value="is_empty">Is Empty</option>
+                                                                        <option value="is_not_empty">Is Not Empty</option>
+                                                                    </select>
+                                                                    @error('items.' . $groupIndex . '.items.' . $conditionIndex . '.operator')
+                                                                        <span class="text-red-600 text-xs">{{ $message }}</span>
+                                                                    @enderror
+                                                                </div>
+
+                                                                <!-- Value -->
+                                                                <div>
+                                                                    <label class="block text-xs font-semibold text-gray-700 mb-1">Value</label>
+                                                                    <input type="text" wire:model="items.{{ $groupIndex }}.items.{{ $conditionIndex }}.value"
+                                                                           placeholder="Value to compare..."
+                                                                           class="block w-full border-2 border-gray-300 text-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 px-2 py-1.5 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                                                                           @if(in_array($group['items'][$conditionIndex]['operator'] ?? '', ['is_empty', 'is_not_empty'])) disabled @endif>
+                                                                    @error('items.' . $groupIndex . '.items.' . $conditionIndex . '.value')
+                                                                        <span class="text-red-600 text-xs">{{ $message }}</span>
+                                                                    @enderror
+                                                                </div>
+                                                            </div>
+
+                                                            <!-- Remove Condition Button -->
+                                                            <button type="button" wire:click="removeConditionFromGroup({{ $groupIndex }}, {{ $conditionIndex }})"
+                                                                    class="mt-6 text-red-600 hover:text-red-800">
+                                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                @empty
+                                                    <div class="text-center p-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg">
+                                                        <p class="text-xs text-gray-600 font-medium">No conditions in this group. Click "Add Condition" to start.</p>
+                                                    </div>
+                                                @endforelse
                                             </div>
                                         </div>
                                     @empty
                                         <div class="text-center p-4 bg-gray-100 border-2 border-dashed border-gray-300 rounded-lg">
-                                            <p class="text-sm text-gray-600 font-medium">No conditions added yet. Click "Add Condition" to start.</p>
+                                            <p class="text-sm text-gray-600 font-medium">No groups added yet. Click "Add Group" to start building your rules.</p>
                                         </div>
                                     @endforelse
                                 </div>
-                                @error('conditions') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
+                                @error('items') <span class="text-red-600 text-xs font-semibold">{{ $message }}</span> @enderror
                             </div>
                         </div>
                         <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
