@@ -55,7 +55,7 @@ class OrganizationManager extends Component
 
     // Advanced create fields
     public $conditions = [];
-    public $conditionLogic = 'AND'; // AND or OR
+    public $conditionLogic = 'OR'; // AND or OR - Changed default to OR as per requirement
 
     protected $queryString = ['search'];
 
@@ -144,7 +144,7 @@ class OrganizationManager extends Component
     {
         $this->reset(['name', 'description', 'is_active', 'domains', 'conditions', 'conditionLogic']);
         $this->is_active = true;
-        $this->conditionLogic = 'AND';
+        $this->conditionLogic = 'OR'; // Inner logic defaults to OR
         $this->conditions = []; // Start with empty conditions
 
         $this->showAdvancedCreateModal = true;

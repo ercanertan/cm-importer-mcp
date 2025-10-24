@@ -19,7 +19,7 @@ test('it can open advanced create modal', function () {
     Livewire::test(OrganizationManager::class)
         ->call('openAdvancedCreateModal')
         ->assertSet('showAdvancedCreateModal', true)
-        ->assertSet('conditionLogic', 'AND')
+        ->assertSet('conditionLogic', 'OR')  // Changed default to OR as per requirement
         ->assertSet('conditions', [])
         ->assertSet('is_active', true);
 });
