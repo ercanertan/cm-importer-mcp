@@ -65,13 +65,16 @@ class SyncOrganizationConditionalJob implements ShouldQueue
             // Step 4: Remove users who no longer meet conditions (auto-assigned only)
             $removedCount = $this->removeDisqualifiedUsers($organization, $domainIds);
 
+            // Preserve original metadata and add results
+            $originalMetadata = is_array($syncLog->metadata) ? $syncLog->metadata : [];
             $syncLog->update([
                 'status' => 'completed',
                 'completed_at' => now(),
-                'metadata' => [
+                'metadata' => array_merge($originalMetadata, [
                     'users_added' => $syncLog->successful_items,
                     'users_removed' => $removedCount,
-                ],
+                    'domains_synced' => $this->domainList,
+                ]),
             ]);
 
             Log::info('Conditional organization sync completed', [

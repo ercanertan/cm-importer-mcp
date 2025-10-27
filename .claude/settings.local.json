@@ -21,7 +21,9 @@
       "mcp__laravel-boost__get-absolute-url",
       "Bash(git mv:*)",
       "Bash(find:*)",
-      "Bash(vendor/bin/pest:*)"
+      "Bash(vendor/bin/pest:*)",
+      "Bash(awk:*)",
+      "Bash(xargs kill:*)"
     ],
     "deny": [],
     "ask": []
