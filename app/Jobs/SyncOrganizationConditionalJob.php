@@ -51,6 +51,9 @@ class SyncOrganizationConditionalJob implements ShouldQueue
             // Step 1: Associate domains with organization
             $domainIds = $this->associateDomains($organization);
 
+            // Step 1.5: Remove auto-assigned users whose domains are no longer associated
+            $this->removeUsersFromDetachedDomains($organization, $domainIds);
+
             // Step 2: Find users matching conditions
             $matchingUserIds = $this->findMatchingUsers($domainIds);
 
@@ -96,6 +99,7 @@ class SyncOrganizationConditionalJob implements ShouldQueue
 
     /**
      * Associate domains with organization
+     * Uses sync() to ensure ONLY the specified domains are associated
      */
     protected function associateDomains(Organization $organization): array
     {
@@ -107,14 +111,60 @@ class SyncOrganizationConditionalJob implements ShouldQueue
             );
 
             $domainIds[] = $domain->id;
-
-            // Attach domain if not already attached
-            if (!$organization->domains()->where('domain_id', $domain->id)->exists()) {
-                $organization->domains()->attach($domain->id);
-            }
         }
 
+        // Sync domains - this will:
+        // 1. Attach domains that aren't already attached
+        // 2. Detach domains that were attached but are no longer in the list
+        // 3. Keep domains that are already attached and still in the list
+        $organization->domains()->sync($domainIds);
+
+        Log::info('Organization domains synced in conditional job', [
+            'sync_log_id' => $this->syncLogId,
+            'organization_id' => $organization->id,
+            'organization_name' => $organization->name,
+            'domain_ids' => $domainIds,
+            'domain_count' => count($domainIds)
+        ]);
+
         return $domainIds;
+    }
+
+    /**
+     * Remove auto-assigned users whose domains are no longer associated with this organization
+     */
+    protected function removeUsersFromDetachedDomains(Organization $organization, array $currentDomainIds): int
+    {
+        // Find users auto-assigned to this organization whose domains are NOT in the current list
+        $usersToRemove = DB::table('organization_user')
+            ->join('users', 'organization_user.user_id', '=', 'users.id')
+            ->where('organization_user.organization_id', $organization->id)
+            ->where('organization_user.is_manual', false) // Only auto-assigned users
+            ->whereNotNull('users.domain_id')
+            ->whereNotIn('users.domain_id', $currentDomainIds)
+            ->pluck('organization_user.user_id')
+            ->toArray();
+
+        if (empty($usersToRemove)) {
+            return 0;
+        }
+
+        // Remove these users from the organization
+        DB::table('organization_user')
+            ->where('organization_id', $organization->id)
+            ->whereIn('user_id', $usersToRemove)
+            ->where('is_manual', false)
+            ->delete();
+
+        Log::info('Removed auto-assigned users from conditional organization after domain detachment', [
+            'sync_log_id' => $this->syncLogId,
+            'organization_id' => $organization->id,
+            'organization_name' => $organization->name,
+            'users_removed_count' => count($usersToRemove),
+            'current_domain_ids' => $currentDomainIds
+        ]);
+
+        return count($usersToRemove);
     }
 
     /**
