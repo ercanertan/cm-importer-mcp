@@ -170,8 +170,8 @@ describe('Organization User Management Modal', function () {
         $autoUserResult = collect($assignedUsers)->firstWhere('id', $autoUser->id);
         $manualUserResult = collect($assignedUsers)->firstWhere('id', $manualUser->id);
 
-        expect($autoUserResult->pivot->is_manual)->toBe(0);
-        expect($manualUserResult->pivot->is_manual)->toBe(1);
+        expect($autoUserResult->pivot->is_manual)->toBeFalse();
+        expect($manualUserResult->pivot->is_manual)->toBeTrue();
     });
 
     it('sorts manual assignments before auto assignments', function () {
@@ -189,7 +189,7 @@ describe('Organization User Management Modal', function () {
 
         // Manual user should appear first despite alphabetical order
         $firstUser = collect($assignedUsers)->first();
-        expect($firstUser->pivot->is_manual)->toBe(1);
+        expect($firstUser->pivot->is_manual)->toBeTrue();
     });
 
     it('handles edge case of organization with no users', function () {

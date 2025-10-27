@@ -107,7 +107,6 @@ class User extends Authenticatable
         return $this->belongsToMany(Organization::class)
             ->withPivot('is_manual', 'is_primary')
             ->withTimestamps()
-            ->as('membership')
             ->using(\App\Models\OrganizationUser::class);
     }
 
@@ -120,7 +119,6 @@ class User extends Authenticatable
             ->withPivot('is_manual', 'is_primary')
             ->wherePivot('is_primary', true)
             ->withTimestamps()
-            ->as('membership')
             ->using(\App\Models\OrganizationUser::class)
             ->first();
     }
@@ -162,7 +160,7 @@ class User extends Authenticatable
             ->where('organization_id', $organizationId)
             ->first();
 
-        return $org && $org->membership->is_primary;
+        return $org && $org->pivot->is_primary;
     }
 
     /**

@@ -736,7 +736,7 @@
                                                                 {{ $user->cm_status }}
                                                             </td>
                                                             <td class="px-3 py-2 text-sm">
-                                                                @if($user->membership->is_manual)
+                                                                @if($user->pivot->is_manual)
                                                                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-900 border border-green-300">
                                                                         🟢 Manual
                                                                     </span>

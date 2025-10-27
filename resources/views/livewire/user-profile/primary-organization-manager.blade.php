@@ -14,7 +14,7 @@
             </div>
         @endif
 
-        @if($organizations && $organizations->count() > 0)
+        @if(count($organizations) > 0)
             <div class="space-y-3">
                 <p class="text-sm text-gray-600 mb-4">
                     Select your primary organization. This will be used as your default organization throughout the application.

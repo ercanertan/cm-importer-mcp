@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Auth;
 
 class PrimaryOrganizationManager extends Component
 {
-    public $organizations;
+    public $organizations = [];
     public $primaryOrganizationId;
 
     public function mount()
@@ -26,8 +26,8 @@ class PrimaryOrganizationManager extends Component
                 return [
                     'id' => $org->id,
                     'name' => $org->name,
-                    'is_primary' => $org->membership->is_primary,
-                    'is_manual' => $org->membership->is_manual,
+                    'is_primary' => $org->pivot->is_primary,
+                    'is_manual' => $org->pivot->is_manual,
                 ];
             });
 

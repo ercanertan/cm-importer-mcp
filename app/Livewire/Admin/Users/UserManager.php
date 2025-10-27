@@ -135,8 +135,8 @@ class UserManager extends Component
                 return [
                     'id' => $org->id,
                     'name' => $org->name,
-                    'is_primary' => $org->membership->is_primary,
-                    'is_manual' => $org->membership->is_manual,
+                    'is_primary' => $org->pivot->is_primary,
+                    'is_manual' => $org->pivot->is_manual,
                 ];
             })
             ->toArray();
@@ -172,8 +172,8 @@ class UserManager extends Component
                     return [
                         'id' => $org->id,
                         'name' => $org->name,
-                        'is_primary' => $org->membership->is_primary,
-                        'is_manual' => $org->membership->is_manual,
+                        'is_primary' => $org->pivot->is_primary,
+                        'is_manual' => $org->pivot->is_manual,
                     ];
                 })
                 ->toArray();

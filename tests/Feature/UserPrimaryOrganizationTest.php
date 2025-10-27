@@ -42,7 +42,7 @@ describe('User Primary Organization', function () {
 
             $organization = $user->organizations()->first();
 
-            expect($organization->membership->is_primary)->toBeTrue();
+            expect($organization->pivot->is_primary)->toBeTrue();
         });
     });
 
@@ -77,11 +77,11 @@ describe('User Primary Organization', function () {
 
             // Check org1 is no longer primary
             $org1Status = $user->organizations()->where('organization_id', $org1->id)->first();
-            expect($org1Status->membership->is_primary)->toBeFalse();
+            expect($org1Status->pivot->is_primary)->toBeFalse();
 
             // Check org2 is now primary
             $org2Status = $user->organizations()->where('organization_id', $org2->id)->first();
-            expect($org2Status->membership->is_primary)->toBeTrue();
+            expect($org2Status->pivot->is_primary)->toBeTrue();
         });
 
         it('returns false when user does not belong to organization', function () {
@@ -120,8 +120,8 @@ describe('User Primary Organization', function () {
             $org1Status = $user->organizations()->where('organization_id', $org1->id)->first();
             $org2Status = $user->organizations()->where('organization_id', $org2->id)->first();
 
-            expect($org1Status->membership->is_primary)->toBeFalse();
-            expect($org2Status->membership->is_primary)->toBeFalse();
+            expect($org1Status->pivot->is_primary)->toBeFalse();
+            expect($org2Status->pivot->is_primary)->toBeFalse();
         });
     });
 
@@ -196,8 +196,8 @@ describe('User Primary Organization', function () {
 
             $organization = $user->organizations()->first();
 
-            expect($organization->membership->is_primary)->toBeTrue();
-            expect($organization->membership->is_manual)->toBeTrue();
+            expect($organization->pivot->is_primary)->toBeTrue();
+            expect($organization->pivot->is_manual)->toBeTrue();
         });
     });
 });
