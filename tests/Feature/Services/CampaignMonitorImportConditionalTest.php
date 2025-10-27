@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\CmCustomField;
+use App\Enums\CustomFieldTypes;
 use App\Models\CmImportLog;
 use App\Models\Domain;
 use App\Models\Organization;
@@ -23,14 +24,14 @@ test('imports users to conditional organization when rules match (AND logic)', f
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
     $locationField = CmCustomField::factory()->create([
         'field_key' => 'Location',
         'field_name' => 'Location',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -100,14 +101,14 @@ test('imports users to conditional organization when rules match (OR logic)', fu
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
     $roleField = CmCustomField::factory()->create([
         'field_key' => 'Role',
         'field_name' => 'Role',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -170,7 +171,7 @@ test('users excluded from conditional org fall back to default organization', fu
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -224,7 +225,7 @@ test('imports work correctly with mixed organizations (with and without rules)',
     $levelField = CmCustomField::factory()->create([
         'field_key' => 'Level',
         'field_name' => 'Level',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -290,13 +291,13 @@ test('tests all supported operators', function () {
     $nameField = CmCustomField::factory()->create([
         'field_key' => 'Name',
         'field_name' => 'Name',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
     ]);
 
     $titleField = CmCustomField::factory()->create([
         'field_key' => 'Title',
         'field_name' => 'Title',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
     ]);
 
     // Test contains operator
@@ -346,14 +347,14 @@ test('proactively discovers and assigns users to ALL qualifying conditional orga
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
     $levelField = CmCustomField::factory()->create([
         'field_key' => 'Level',
         'field_name' => 'Level',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -479,7 +480,7 @@ test('proactive discovery respects domain boundaries for conditional orgs', func
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 

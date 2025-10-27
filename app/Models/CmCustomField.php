@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\CustomFieldTypes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -12,7 +13,6 @@ class CmCustomField extends Model
         'field_key',
         'field_name',
         'data_type',
-        'allow_multiple',
         'options',
         'is_active',
         'is_user_editable',
@@ -20,10 +20,10 @@ class CmCustomField extends Model
     ];
 
     protected $casts = [
+        'data_type' => CustomFieldTypes::class,
         'options' => 'array',
         'is_active' => 'boolean',
         'is_user_editable' => 'boolean',
-        'allow_multiple' => 'boolean',
         'last_seen_at' => 'datetime',
     ];
 
@@ -54,21 +54,21 @@ class CmCustomField extends Model
         return $query->where('field_key', $fieldKey);
     }
 
-    public function detectDataType($value)
+    public function detectDataType($value): CustomFieldTypes
     {
         if (is_numeric($value)) {
-            return 'number';
+            return CustomFieldTypes::Number;
         }
 
         if (preg_match('/^\d{4}-\d{2}-\d{2}/', $value)) {
-            return 'date';
+            return CustomFieldTypes::Date;
         }
 
         if (strpos($value, ',') !== false || strpos($value, ';') !== false) {
-            return 'multi_select';
+            return CustomFieldTypes::MultiSelectOne;
         }
 
-        return 'text';
+        return CustomFieldTypes::Text;
     }
 
     public function updateLastSeen()

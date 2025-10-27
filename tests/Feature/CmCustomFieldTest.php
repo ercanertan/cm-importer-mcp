@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CustomFieldTypes;
 use App\Models\CmCustomField;
 use App\Models\CmCustomFieldValue;
 use App\Models\User;
@@ -12,7 +13,7 @@ describe('CmCustomField Model', function () {
         it('creates custom field with default text type', function () {
             $field = CmCustomField::factory()->create();
 
-            expect($field->data_type)->toBe('text');
+            expect($field->data_type)->toBe(CustomFieldTypes::Text);
             expect($field->is_active)->toBeTrue();
             expect($field->field_key)->not->toBeNull();
         });
@@ -26,19 +27,19 @@ describe('CmCustomField Model', function () {
         it('creates number type custom field', function () {
             $field = CmCustomField::factory()->number()->create();
 
-            expect($field->data_type)->toBe('number');
+            expect($field->data_type)->toBe(CustomFieldTypes::Number);
         });
 
         it('creates date type custom field', function () {
             $field = CmCustomField::factory()->date()->create();
 
-            expect($field->data_type)->toBe('date');
+            expect($field->data_type)->toBe(CustomFieldTypes::Date);
         });
 
         it('creates multi-select type custom field', function () {
             $field = CmCustomField::factory()->multiSelect()->create();
 
-            expect($field->data_type)->toBe('multi_select');
+            expect($field->data_type)->toBe(CustomFieldTypes::MultiSelectOne);
             expect($field->options)->toBeArray();
             expect($field->options)->toHaveCount(3);
         });
@@ -50,36 +51,36 @@ describe('CmCustomField Model', function () {
         });
 
         it('detects numeric values as number type', function () {
-            expect($this->field->detectDataType('123'))->toBe('number');
-            expect($this->field->detectDataType('45.67'))->toBe('number');
-            expect($this->field->detectDataType('0'))->toBe('number');
+            expect($this->field->detectDataType('123'))->toBe(CustomFieldTypes::Number);
+            expect($this->field->detectDataType('45.67'))->toBe(CustomFieldTypes::Number);
+            expect($this->field->detectDataType('0'))->toBe(CustomFieldTypes::Number);
         });
 
         it('detects date values as date type', function () {
-            expect($this->field->detectDataType('2024-01-15'))->toBe('date');
-            expect($this->field->detectDataType('2024-12-31 10:30:00'))->toBe('date');
+            expect($this->field->detectDataType('2024-01-15'))->toBe(CustomFieldTypes::Date);
+            expect($this->field->detectDataType('2024-12-31 10:30:00'))->toBe(CustomFieldTypes::Date);
         });
 
         it('detects comma-separated values as multi_select', function () {
-            expect($this->field->detectDataType('Option1,Option2,Option3'))->toBe('multi_select');
+            expect($this->field->detectDataType('Option1,Option2,Option3'))->toBe(CustomFieldTypes::MultiSelectOne);
         });
 
         it('detects semicolon-separated values as multi_select', function () {
-            expect($this->field->detectDataType('Option1;Option2;Option3'))->toBe('multi_select');
+            expect($this->field->detectDataType('Option1;Option2;Option3'))->toBe(CustomFieldTypes::MultiSelectOne);
         });
 
         it('detects plain text as text type', function () {
-            expect($this->field->detectDataType('Hello World'))->toBe('text');
-            expect($this->field->detectDataType('Some description'))->toBe('text');
+            expect($this->field->detectDataType('Hello World'))->toBe(CustomFieldTypes::Text);
+            expect($this->field->detectDataType('Some description'))->toBe(CustomFieldTypes::Text);
         });
 
         it('handles empty values', function () {
-            expect($this->field->detectDataType(''))->toBe('text');
+            expect($this->field->detectDataType(''))->toBe(CustomFieldTypes::Text);
         });
 
         it('prioritizes number over date format', function () {
             // A value that's numeric should be detected as number
-            expect($this->field->detectDataType('20240115'))->toBe('number');
+            expect($this->field->detectDataType('20240115'))->toBe(CustomFieldTypes::Number);
         });
     });
 
@@ -222,64 +223,10 @@ describe('CmCustomField Model', function () {
             expect($field->fresh()->is_active)->toBeBool();
         });
 
-        it('casts allow_multiple as boolean', function () {
-            $field = CmCustomField::factory()->create(['allow_multiple' => true]);
-
-            expect($field->fresh()->allow_multiple)->toBeTrue();
-            expect($field->fresh()->allow_multiple)->toBeBool();
-        });
-
         it('casts last_seen_at as datetime', function () {
             $field = CmCustomField::factory()->create();
 
             expect($field->last_seen_at)->toBeInstanceOf(\Illuminate\Support\Carbon::class);
-        });
-    });
-
-    describe('allow_multiple functionality', function () {
-        it('defaults allow_multiple to false', function () {
-            $field = CmCustomField::factory()->create();
-
-            expect($field->allow_multiple)->toBeFalse();
-        });
-
-        it('creates field with allow_multiple enabled', function () {
-            $field = CmCustomField::factory()->create([
-                'data_type' => 'multi_select',
-                'allow_multiple' => true,
-                'options' => ['Option 1', 'Option 2', 'Option 3'],
-            ]);
-
-            expect($field->allow_multiple)->toBeTrue();
-            expect($field->data_type)->toBe('multi_select');
-        });
-
-        it('allows allow_multiple on multi_select fields', function () {
-            $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => true,
-            ]);
-
-            expect($field->allow_multiple)->toBeTrue();
-            expect($field->data_type)->toBe('multi_select');
-        });
-
-        it('can have allow_multiple false for multi_select fields', function () {
-            $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => false,
-            ]);
-
-            expect($field->allow_multiple)->toBeFalse();
-            expect($field->data_type)->toBe('multi_select');
-        });
-
-        it('can toggle allow_multiple on existing field', function () {
-            $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => false,
-            ]);
-
-            $field->update(['allow_multiple' => true]);
-
-            expect($field->fresh()->allow_multiple)->toBeTrue();
         });
     });
 
@@ -299,7 +246,7 @@ describe('CmCustomField Model', function () {
             $specialValue = 'Value with "quotes" and, commas;';
             $type = $field->detectDataType($specialValue);
 
-            expect($type)->toBe('multi_select'); // Has comma and semicolon
+            expect($type)->toBe(CustomFieldTypes::MultiSelectOne); // Has comma and semicolon
         });
 
         it('properly generates field name from field key', function () {
@@ -322,10 +269,10 @@ describe('CmCustomField Model', function () {
             $field = CmCustomField::factory()->create();
 
             // Email addresses might contain @ but should be text
-            expect($field->detectDataType('user@example.com'))->toBe('text');
+            expect($field->detectDataType('user@example.com'))->toBe(CustomFieldTypes::Text);
 
             // URLs should be text
-            expect($field->detectDataType('https://example.com'))->toBe('text');
+            expect($field->detectDataType('https://example.com'))->toBe(CustomFieldTypes::Text);
         });
     });
 

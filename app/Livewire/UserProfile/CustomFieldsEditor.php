@@ -2,6 +2,7 @@
 
 namespace App\Livewire\UserProfile;
 
+use App\Enums\CustomFieldTypes;
 use App\Models\CmCustomField;
 use App\Models\CmCustomFieldValue;
 use Illuminate\Support\Facades\Auth;
@@ -46,14 +47,14 @@ class CustomFieldsEditor extends Component
         foreach ($this->customFields as $field) {
             $fieldRules = [];
 
-            if ($field['data_type'] === 'number') {
+            if ($field['data_type'] === CustomFieldTypes::Number->value) {
                 $fieldRules[] = 'nullable';
                 $fieldRules[] = 'numeric';
-            } elseif ($field['data_type'] === 'date') {
+            } elseif ($field['data_type'] === CustomFieldTypes::Date->value) {
                 $fieldRules[] = 'nullable';
                 $fieldRules[] = 'date';
-            } elseif ($field['data_type'] === 'multi_select' && $field['allow_multiple']) {
-                // Allow array for multi-select with allow_multiple
+            } elseif ($field['data_type'] === CustomFieldTypes::MultiSelectMany->value) {
+                // Allow array for MultiSelectMany
                 $fieldRules[] = 'nullable';
                 $fieldRules[] = 'array';
             } else {

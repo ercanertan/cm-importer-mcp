@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CustomFieldTypes;
 use App\Models\CmCustomField;
 use App\Models\CmCustomFieldValue;
 use App\Models\User;
@@ -118,7 +119,7 @@ describe('CmCustomFieldValue Model', function () {
 
     describe('formatted value attribute', function () {
         it('formats text values as-is', function () {
-            $field = CmCustomField::factory()->create(['data_type' => 'text']);
+            $field = CmCustomField::factory()->create(['data_type' => CustomFieldTypes::Text]);
             $value = CmCustomFieldValue::factory()->create([
                 'cm_custom_field_id' => $field->id,
                 'value' => 'Some text value',
@@ -179,9 +180,9 @@ describe('CmCustomFieldValue Model', function () {
             expect($value->formatted_value)->toBe('not-a-number');
         });
 
-        it('formats multi-select values as string when allow_multiple is false', function () {
+        it('formats multi-select values as string for MultiSelectOne', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => false,
+                'data_type' => CustomFieldTypes::MultiSelectOne,
             ]);
             $value = CmCustomFieldValue::factory()->create([
                 'cm_custom_field_id' => $field->id,
@@ -194,9 +195,9 @@ describe('CmCustomFieldValue Model', function () {
             expect($formatted)->toBe('Option1');
         });
 
-        it('handles single-item multi-select value as string when allow_multiple is false', function () {
+        it('handles single-item multi-select value as string for MultiSelectOne', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => false,
+                'data_type' => CustomFieldTypes::MultiSelectOne,
             ]);
             $value = CmCustomFieldValue::factory()->create([
                 'cm_custom_field_id' => $field->id,
@@ -249,7 +250,7 @@ describe('CmCustomFieldValue Model', function () {
         });
 
         it('handles very long text values', function () {
-            $field = CmCustomField::factory()->create(['data_type' => 'text']);
+            $field = CmCustomField::factory()->create(['data_type' => CustomFieldTypes::Text]);
             $longText = str_repeat('Lorem ipsum ', 1000); // ~12000 characters
 
             $value = CmCustomFieldValue::factory()->create([
@@ -350,9 +351,9 @@ describe('CmCustomFieldValue Model', function () {
             expect($formatted)->toContain('Option 3');
         });
 
-        it('handles single value in multi-select field when allow_multiple is false', function () {
+        it('handles single value in multi-select field for MultiSelectOne', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => false,
+                'data_type' => CustomFieldTypes::MultiSelectOne,
             ]);
             $value = CmCustomFieldValue::factory()->create([
                 'cm_custom_field_id' => $field->id,
@@ -366,10 +367,10 @@ describe('CmCustomFieldValue Model', function () {
         });
     });
 
-    describe('allow_multiple JSON storage', function () {
-        it('stores array values as JSON when allow_multiple is true', function () {
+    describe('Multi-select JSON storage', function () {
+        it('stores array values as JSON for MultiSelectMany', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => true,
+                'data_type' => CustomFieldTypes::MultiSelectMany,
             ]);
 
             $value = CmCustomFieldValue::create([
@@ -387,9 +388,9 @@ describe('CmCustomFieldValue Model', function () {
             expect(json_decode($rawValue, true))->toBe(['Option 1', 'Option 2', 'Option 3']);
         });
 
-        it('retrieves JSON values as array when allow_multiple is true', function () {
+        it('retrieves JSON values as array for MultiSelectMany', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => true,
+                'data_type' => CustomFieldTypes::MultiSelectMany,
             ]);
 
             $value = CmCustomFieldValue::create([
@@ -404,9 +405,9 @@ describe('CmCustomFieldValue Model', function () {
             expect($retrieved->value)->toBe(['Option A', 'Option B']);
         });
 
-        it('stores single string value when allow_multiple is false', function () {
+        it('stores single string value for MultiSelectOne', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => false,
+                'data_type' => CustomFieldTypes::MultiSelectOne,
             ]);
 
             $value = CmCustomFieldValue::create([
@@ -419,9 +420,9 @@ describe('CmCustomFieldValue Model', function () {
             expect($value->fresh()->value)->toBeString();
         });
 
-        it('handles empty array for allow_multiple fields', function () {
+        it('handles empty array for MultiSelectMany fields', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => true,
+                'data_type' => CustomFieldTypes::MultiSelectMany,
             ]);
 
             $value = CmCustomFieldValue::create([
@@ -436,7 +437,7 @@ describe('CmCustomFieldValue Model', function () {
 
         it('updates array values correctly', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => true,
+                'data_type' => CustomFieldTypes::MultiSelectMany,
             ]);
 
             $value = CmCustomFieldValue::create([
@@ -451,9 +452,9 @@ describe('CmCustomFieldValue Model', function () {
             expect($value->fresh()->value)->toBe(['Updated 1', 'Updated 2', 'Updated 3']);
         });
 
-        it('formatted_value returns array for allow_multiple fields', function () {
+        it('formatted_value returns array for MultiSelectMany fields', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => true,
+                'data_type' => CustomFieldTypes::MultiSelectMany,
             ]);
 
             $value = CmCustomFieldValue::create([
@@ -468,7 +469,7 @@ describe('CmCustomFieldValue Model', function () {
 
         it('formatted_value returns string for single-select multi_select fields', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => false,
+                'data_type' => CustomFieldTypes::MultiSelectOne,
             ]);
 
             $value = CmCustomFieldValue::create([
@@ -483,7 +484,7 @@ describe('CmCustomFieldValue Model', function () {
 
         it('handles special characters in array values', function () {
             $field = CmCustomField::factory()->multiSelect()->create([
-                'allow_multiple' => true,
+                'data_type' => CustomFieldTypes::MultiSelectMany,
             ]);
 
             $value = CmCustomFieldValue::create([

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CustomFieldTypes;
 use App\Jobs\SyncSingleDomainJob;
 use App\Models\Domain;
 use App\Models\Organization;
@@ -142,14 +143,14 @@ describe('SyncSingleDomainJob', function () {
         $departmentField = \App\Models\CmCustomField::factory()->create([
             'field_key' => 'Department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
         $levelField = \App\Models\CmCustomField::factory()->create([
             'field_key' => 'Level',
             'field_name' => 'Level',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -273,7 +274,7 @@ describe('SyncSingleDomainJob', function () {
         $departmentField = \App\Models\CmCustomField::factory()->create([
             'field_key' => 'Department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 

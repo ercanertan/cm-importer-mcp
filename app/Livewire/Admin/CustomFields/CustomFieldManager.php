@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Admin\CustomFields;
 
+use App\Enums\CustomFieldTypes;
 use App\Models\CmCustomField;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -24,8 +25,7 @@ class CustomFieldManager extends Component
     // Form fields
     public $field_key = '';
     public $field_name = '';
-    public $data_type = 'text';
-    public $allow_multiple = false;
+    public $data_type = '';
     public $options = '';
     public $is_active = true;
     public $is_user_editable = false;
@@ -54,28 +54,28 @@ class CustomFieldManager extends Component
 
     public function openCreateModal()
     {
-        $this->reset(['field_key', 'field_name', 'data_type', 'allow_multiple', 'options', 'is_active', 'is_user_editable']);
+        $this->reset(['field_key', 'field_name', 'data_type', 'options', 'is_active', 'is_user_editable']);
         $this->is_active = true;
         $this->is_user_editable = false;
-        $this->allow_multiple = false;
-        $this->data_type = 'text';
+        $this->data_type = CustomFieldTypes::Text->value;
         $this->showCreateModal = true;
     }
 
     public function closeCreateModal()
     {
         $this->showCreateModal = false;
-        $this->reset(['field_key', 'field_name', 'data_type', 'allow_multiple', 'options', 'is_active', 'is_user_editable']);
+        $this->reset(['field_key', 'field_name', 'data_type', 'options', 'is_active', 'is_user_editable']);
         $this->resetValidation();
     }
 
     public function createCustomField()
     {
+        $validTypes = implode(',', array_map(fn($type) => $type->value, CustomFieldTypes::cases()));
+
         $this->validate([
             'field_key' => 'required|string|max:255|unique:cm_custom_fields,field_key',
             'field_name' => 'required|string|max:255',
-            'data_type' => 'required|in:text,number,date,multi_select',
-            'allow_multiple' => 'boolean',
+            'data_type' => "required|in:{$validTypes}",
             'options' => 'nullable|string',
             'is_active' => 'boolean',
             'is_user_editable' => 'boolean',
@@ -86,7 +86,6 @@ class CustomFieldManager extends Component
                 'field_key' => $this->field_key,
                 'field_name' => $this->field_name,
                 'data_type' => $this->data_type,
-                'allow_multiple' => $this->allow_multiple,
                 'options' => $this->parseOptions($this->options),
                 'is_active' => $this->is_active,
                 'is_user_editable' => $this->is_user_editable,
@@ -109,8 +108,7 @@ class CustomFieldManager extends Component
 
         $this->field_key = $customField->field_key;
         $this->field_name = $customField->field_name;
-        $this->data_type = $customField->data_type;
-        $this->allow_multiple = $customField->allow_multiple;
+        $this->data_type = $customField->data_type->value;
         $this->options = is_array($customField->options) ? implode(', ', $customField->options) : '';
         $this->is_active = $customField->is_active;
         $this->is_user_editable = $customField->is_user_editable;
@@ -123,17 +121,18 @@ class CustomFieldManager extends Component
     {
         $this->showEditModal = false;
         $this->customFieldToEditId = null;
-        $this->reset(['field_key', 'field_name', 'data_type', 'allow_multiple', 'options', 'is_active', 'is_user_editable']);
+        $this->reset(['field_key', 'field_name', 'data_type', 'options', 'is_active', 'is_user_editable']);
         $this->resetValidation();
     }
 
     public function updateCustomField()
     {
+        $validTypes = implode(',', array_map(fn($type) => $type->value, CustomFieldTypes::cases()));
+
         $this->validate([
             'field_key' => 'required|string|max:255|unique:cm_custom_fields,field_key,' . $this->customFieldToEditId,
             'field_name' => 'required|string|max:255',
-            'data_type' => 'required|in:text,number,date,multi_select',
-            'allow_multiple' => 'boolean',
+            'data_type' => "required|in:{$validTypes}",
             'options' => 'nullable|string',
             'is_active' => 'boolean',
             'is_user_editable' => 'boolean',
@@ -146,7 +145,6 @@ class CustomFieldManager extends Component
                 'field_key' => $this->field_key,
                 'field_name' => $this->field_name,
                 'data_type' => $this->data_type,
-                'allow_multiple' => $this->allow_multiple,
                 'options' => $this->parseOptions($this->options),
                 'is_active' => $this->is_active,
                 'is_user_editable' => $this->is_user_editable,

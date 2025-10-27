@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\SyncDomainOrganizationsJob;
+use App\Enums\CustomFieldTypes;
 use App\Models\CmCustomField;
 use App\Models\Domain;
 use App\Models\Organization;
@@ -17,7 +18,7 @@ test('Domain::assignUsersFromDomain respects conditional rules', function () {
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -75,7 +76,7 @@ test('Domain::assignUsersToOrganization respects conditional rules', function ()
     $levelField = CmCustomField::factory()->create([
         'field_key' => 'Level',
         'field_name' => 'Level',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -134,7 +135,7 @@ test('SyncDomainOrganizationsJob respects conditional rules', function () {
     $titleField = CmCustomField::factory()->create([
         'field_key' => 'Title',
         'field_name' => 'Title',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -202,7 +203,7 @@ test('sync handles mixed conditional and non-conditional organizations', functio
     $roleField = CmCustomField::factory()->create([
         'field_key' => 'Role',
         'field_name' => 'Role',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -264,14 +265,14 @@ test('sync respects OR logic in conditional rules', function () {
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
     $roleField = CmCustomField::factory()->create([
         'field_key' => 'Role',
         'field_name' => 'Role',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 

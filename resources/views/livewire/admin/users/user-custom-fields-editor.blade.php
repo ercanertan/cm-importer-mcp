@@ -73,29 +73,28 @@
                                                 id="field_{{ $field['id'] }}"
                                                 class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md text-gray-700">
 
-                                        @elseif($field['data_type'] === 'multi_select' && $field['options'])
-                                            @if($field['allow_multiple'])
-                                                <select
-                                                    wire:model="fieldValues.{{ $field['id'] }}"
-                                                    id="field_{{ $field['id'] }}"
-                                                    multiple
-                                                    class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white text-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                                                    @foreach($field['options'] as $option)
-                                                        <option value="{{ $option }}">{{ $option }}</option>
-                                                    @endforeach
-                                                </select>
-                                                <p class="text-xs text-gray-500 mt-1">Hold Ctrl (Cmd on Mac) to select multiple options</p>
-                                            @else
-                                                <select
-                                                    wire:model="fieldValues.{{ $field['id'] }}"
-                                                    id="field_{{ $field['id'] }}"
-                                                    class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white text-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                                                    <option value="">Select {{ strtolower($field['field_name']) }}</option>
-                                                    @foreach($field['options'] as $option)
-                                                        <option value="{{ $option }}">{{ $option }}</option>
-                                                    @endforeach
-                                                </select>
-                                            @endif
+                                        @elseif($field['data_type'] === 'MultiSelectMany' && $field['options'])
+                                            <select
+                                                wire:model="fieldValues.{{ $field['id'] }}"
+                                                id="field_{{ $field['id'] }}"
+                                                multiple
+                                                class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white text-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                                @foreach($field['options'] as $option)
+                                                    <option value="{{ $option }}">{{ $option }}</option>
+                                                @endforeach
+                                            </select>
+                                            <p class="text-xs text-gray-500 mt-1">Hold Ctrl (Cmd on Mac) to select multiple options</p>
+
+                                        @elseif($field['data_type'] === 'MultiSelectOne' && $field['options'])
+                                            <select
+                                                wire:model="fieldValues.{{ $field['id'] }}"
+                                                id="field_{{ $field['id'] }}"
+                                                class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white text-gray-700 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                                                <option value="">Select {{ strtolower($field['field_name']) }}</option>
+                                                @foreach($field['options'] as $option)
+                                                    <option value="{{ $option }}">{{ $option }}</option>
+                                                @endforeach
+                                            </select>
 
                                         @else
                                             <input

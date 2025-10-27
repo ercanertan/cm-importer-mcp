@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\CustomFieldTypes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -40,8 +41,8 @@ class CmCustomFieldValue extends Model
     {
         $field = $this->customField;
 
-        // Decode JSON for multi-select fields with allow_multiple
-        if ($field && $field->data_type === 'multi_select' && $field->allow_multiple) {
+        // Decode JSON for MultiSelectMany fields
+        if ($field && $field->data_type === CustomFieldTypes::MultiSelectMany) {
             $decoded = json_decode($value, true);
             return is_array($decoded) ? $decoded : [];
         }
@@ -53,8 +54,8 @@ class CmCustomFieldValue extends Model
     {
         $field = $this->customField;
 
-        // Encode to JSON for multi-select fields with allow_multiple
-        if ($field && $field->data_type === 'multi_select' && $field->allow_multiple && is_array($value)) {
+        // Encode to JSON for MultiSelectMany fields
+        if ($field && $field->data_type === CustomFieldTypes::MultiSelectMany && is_array($value)) {
             $this->attributes['value'] = json_encode($value);
         } else {
             $this->attributes['value'] = $value;
@@ -70,7 +71,7 @@ class CmCustomFieldValue extends Model
         }
 
         switch ($field->data_type) {
-            case 'date':
+            case CustomFieldTypes::Date:
                 try {
                     $timestamp = strtotime($this->value);
                     // strtotime returns false for invalid dates, or -1/false for completely invalid strings
@@ -81,14 +82,13 @@ class CmCustomFieldValue extends Model
                 } catch (\Exception $e) {
                     return $this->value;
                 }
-            case 'number':
+            case CustomFieldTypes::Number:
                 return is_numeric($this->value) ? (float) $this->value : $this->value;
-            case 'multi_select':
-                // If allow_multiple, value is already an array from the accessor
-                if ($field->allow_multiple) {
-                    return $this->value;
-                }
-                // Otherwise, it's a single value
+            case CustomFieldTypes::MultiSelectMany:
+                // Value is already an array from the accessor
+                return $this->value;
+            case CustomFieldTypes::MultiSelectOne:
+                // Single value
                 return $this->value;
             default:
                 return $this->value;

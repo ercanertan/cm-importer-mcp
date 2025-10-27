@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\CustomFieldTypes;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -21,8 +22,7 @@ class CmCustomFieldFactory extends Factory
         return [
             'field_key' => $fieldKey,
             'field_name' => ucfirst($fieldKey),
-            'data_type' => 'text',
-            'allow_multiple' => false,
+            'data_type' => CustomFieldTypes::Text,
             'options' => null,
             'is_active' => true,
             'last_seen_at' => now(),
@@ -39,21 +39,21 @@ class CmCustomFieldFactory extends Factory
     public function number(): static
     {
         return $this->state(fn (array $attributes) => [
-            'data_type' => 'number',
+            'data_type' => CustomFieldTypes::Number,
         ]);
     }
 
     public function date(): static
     {
         return $this->state(fn (array $attributes) => [
-            'data_type' => 'date',
+            'data_type' => CustomFieldTypes::Date,
         ]);
     }
 
     public function multiSelect(): static
     {
         return $this->state(fn (array $attributes) => [
-            'data_type' => 'multi_select',
+            'data_type' => CustomFieldTypes::MultiSelectOne,
             'options' => ['Option 1', 'Option 2', 'Option 3'],
         ]);
     }

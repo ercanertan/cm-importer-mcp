@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\RevalidateConditionalOrganizationsJob;
+use App\Enums\CustomFieldTypes;
 use App\Models\CmCustomField;
 use App\Models\Domain;
 use App\Models\Organization;
@@ -18,7 +19,7 @@ test('revalidation removes auto-assigned users who no longer meet conditions', f
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -74,7 +75,7 @@ test('revalidation preserves manual assignments even if user does not meet condi
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -129,7 +130,7 @@ test('revalidation handles mixed manual and auto assignments correctly', functio
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -195,7 +196,7 @@ test('dry-run mode does not make actual changes', function () {
     $departmentField = CmCustomField::factory()->create([
         'field_key' => 'Department',
         'field_name' => 'Department',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -242,7 +243,7 @@ test('revalidation processes all conditional organizations when no specific org 
     $levelField = CmCustomField::factory()->create([
         'field_key' => 'Level',
         'field_name' => 'Level',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 
@@ -308,7 +309,7 @@ test('SyncOrganizationConditionalJob removes disqualified users', function () {
     $roleField = CmCustomField::factory()->create([
         'field_key' => 'Role',
         'field_name' => 'Role',
-        'data_type' => 'text',
+        'data_type' => CustomFieldTypes::Text,
         'is_active' => true,
     ]);
 

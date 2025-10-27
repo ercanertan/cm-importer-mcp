@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('field_key')->unique()->comment('Campaign Monitor field key');
             $table->string('field_name')->comment('Human readable field name');
-            $table->enum('data_type', ['text', 'number', 'date', 'multi_select', 'country'])->default('text');
+            $table->enum('data_type', ['Text', 'Number', 'Date', 'MultiSelectOne', 'MultiSelectMany', 'Country'])->default('Text');
             $table->json('options')->nullable()->comment('For multi-select fields');
             $table->boolean('is_active')->default(true);
             $table->timestamp('last_seen_at')->nullable()->comment('Last time this field appeared in import');

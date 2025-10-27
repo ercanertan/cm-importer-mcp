@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CustomFieldTypes;
 use App\Livewire\Admin\Users\UserCustomFieldsEditor;
 use App\Models\CmCustomField;
 use App\Models\CmCustomFieldValue;
@@ -34,7 +35,7 @@ describe('UserCustomFieldsEditor - Component Rendering', function () {
         $userEditableField = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -42,7 +43,7 @@ describe('UserCustomFieldsEditor - Component Rendering', function () {
         $adminOnlyField = CmCustomField::create([
             'field_key' => 'internal_notes',
             'field_name' => 'Internal Notes',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => false,
         ]);
@@ -57,7 +58,7 @@ describe('UserCustomFieldsEditor - Component Rendering', function () {
         $activeField = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -65,7 +66,7 @@ describe('UserCustomFieldsEditor - Component Rendering', function () {
         $inactiveField = CmCustomField::create([
             'field_key' => 'old_field',
             'field_name' => 'Old Field',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => false,
             'is_user_editable' => true,
         ]);
@@ -84,7 +85,7 @@ describe('UserCustomFieldsEditor - Component Rendering', function () {
         $userEditableField = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -92,7 +93,7 @@ describe('UserCustomFieldsEditor - Component Rendering', function () {
         $adminOnlyField = CmCustomField::create([
             'field_key' => 'internal_notes',
             'field_name' => 'Internal Notes',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => false,
         ]);
@@ -108,7 +109,7 @@ describe('UserCustomFieldsEditor - Loading Existing Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -127,7 +128,7 @@ describe('UserCustomFieldsEditor - Loading Existing Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -142,7 +143,7 @@ describe('UserCustomFieldsEditor - Loading Existing Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -165,7 +166,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -187,7 +188,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'internal_notes',
             'field_name' => 'Internal Notes',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => false,
         ]);
@@ -208,7 +209,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'employee_id',
             'field_name' => 'Employee ID',
-            'data_type' => 'number',
+            'data_type' => CustomFieldTypes::Number,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -229,7 +230,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'hire_date',
             'field_name' => 'Hire Date',
-            'data_type' => 'date',
+            'data_type' => CustomFieldTypes::Date,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -250,7 +251,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
+            'data_type' => CustomFieldTypes::MultiSelectOne,
             'options' => ['PHP', 'Laravel', 'JavaScript'],
             'is_active' => true,
             'is_user_editable' => true,
@@ -272,7 +273,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -299,7 +300,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -326,7 +327,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field1 = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -334,7 +335,7 @@ describe('UserCustomFieldsEditor - Saving Field Values', function () {
         $field2 = CmCustomField::create([
             'field_key' => 'internal_notes',
             'field_name' => 'Internal Notes',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => false,
         ]);
@@ -363,7 +364,7 @@ describe('UserCustomFieldsEditor - Validation', function () {
         $field = CmCustomField::create([
             'field_key' => 'employee_id',
             'field_name' => 'Employee ID',
-            'data_type' => 'number',
+            'data_type' => CustomFieldTypes::Number,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -378,7 +379,7 @@ describe('UserCustomFieldsEditor - Validation', function () {
         $field = CmCustomField::create([
             'field_key' => 'hire_date',
             'field_name' => 'Hire Date',
-            'data_type' => 'date',
+            'data_type' => CustomFieldTypes::Date,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -393,7 +394,7 @@ describe('UserCustomFieldsEditor - Validation', function () {
         $field = CmCustomField::create([
             'field_key' => 'employee_id',
             'field_name' => 'Employee ID',
-            'data_type' => 'number',
+            'data_type' => CustomFieldTypes::Number,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -408,7 +409,7 @@ describe('UserCustomFieldsEditor - Validation', function () {
         $field = CmCustomField::create([
             'field_key' => 'hire_date',
             'field_name' => 'Hire Date',
-            'data_type' => 'date',
+            'data_type' => CustomFieldTypes::Date,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -427,7 +428,7 @@ describe('UserCustomFieldsEditor - User Isolation', function () {
         $field = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -463,7 +464,7 @@ describe('UserCustomFieldsEditor - User Isolation', function () {
         $field = CmCustomField::create([
             'field_key' => 'bio',
             'field_name' => 'Biography',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => true,
         ]);
@@ -489,13 +490,12 @@ describe('UserCustomFieldsEditor - User Isolation', function () {
     });
 });
 
-describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function () {
-    test('it saves array values for multi_select with allow_multiple', function () {
+describe('UserCustomFieldsEditor - Multi-Select', function () {
+    test('it saves array values for MultiSelectMany', function () {
         $field = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
+            'data_type' => CustomFieldTypes::MultiSelectMany,
             'options' => ['PHP', 'Laravel', 'JavaScript', 'Vue.js'],
             'is_active' => true,
             'is_user_editable' => true,
@@ -515,12 +515,11 @@ describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function (
         expect($value->value)->toBe(['PHP', 'Laravel', 'JavaScript']);
     });
 
-    test('it saves single string value for multi_select without allow_multiple', function () {
+    test('it saves single string value for MultiSelectOne', function () {
         $field = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'multi_select',
-            'allow_multiple' => false,
+            'data_type' => CustomFieldTypes::MultiSelectOne,
             'options' => ['Sales', 'Engineering', 'Marketing'],
             'is_active' => true,
             'is_user_editable' => true,
@@ -539,12 +538,11 @@ describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function (
         expect($value->value)->toBeString();
     });
 
-    test('it loads array values for multi_select with allow_multiple', function () {
+    test('it loads array values for MultiSelectMany', function () {
         $field = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
+            'data_type' => CustomFieldTypes::MultiSelectMany,
             'options' => ['PHP', 'Laravel', 'JavaScript'],
             'is_active' => true,
             'is_user_editable' => true,
@@ -564,8 +562,7 @@ describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function (
         $field = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
+            'data_type' => CustomFieldTypes::MultiSelectMany,
             'options' => ['PHP', 'Laravel', 'JavaScript'],
             'is_active' => true,
             'is_user_editable' => true,
@@ -589,12 +586,11 @@ describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function (
         expect($exists)->toBeFalse();
     });
 
-    test('it updates array values for multi_select with allow_multiple', function () {
+    test('it updates array values for MultiSelectMany', function () {
         $field = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
+            'data_type' => CustomFieldTypes::MultiSelectMany,
             'options' => ['PHP', 'Laravel', 'JavaScript', 'Vue.js'],
             'is_active' => true,
             'is_user_editable' => true,
@@ -618,12 +614,11 @@ describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function (
         expect($value->value)->toBe(['JavaScript', 'Vue.js']);
     });
 
-    test('it validates array type for multi_select with allow_multiple', function () {
+    test('it validates array type for MultiSelectMany', function () {
         $field = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
+            'data_type' => CustomFieldTypes::MultiSelectMany,
             'options' => ['PHP', 'Laravel', 'JavaScript'],
             'is_active' => true,
             'is_user_editable' => true,
@@ -635,12 +630,11 @@ describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function (
             ->assertHasErrors(["fieldValues.{$field->id}"]);
     });
 
-    test('it handles single item array for multi_select with allow_multiple', function () {
+    test('it handles single item array for MultiSelectMany', function () {
         $field = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
+            'data_type' => CustomFieldTypes::MultiSelectMany,
             'options' => ['PHP', 'Laravel', 'JavaScript'],
             'is_active' => true,
             'is_user_editable' => true,
@@ -663,8 +657,7 @@ describe('UserCustomFieldsEditor - Multi-Select with Allow Multiple', function (
         $field = CmCustomField::create([
             'field_key' => 'internal_tags',
             'field_name' => 'Internal Tags',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
+            'data_type' => CustomFieldTypes::MultiSelectMany,
             'options' => ['VIP', 'Beta Tester', 'Early Adopter'],
             'is_active' => true,
             'is_user_editable' => false, // Admin only

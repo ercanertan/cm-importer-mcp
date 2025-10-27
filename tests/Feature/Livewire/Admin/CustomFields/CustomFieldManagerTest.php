@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CustomFieldTypes;
 use App\Livewire\Admin\CustomFields\CustomFieldManager;
 use App\Models\CmCustomField;
 use App\Models\CmCustomFieldValue;
@@ -23,7 +24,7 @@ describe('CustomFieldManager - Component Rendering', function () {
         $customField = CmCustomField::create([
             'field_key' => 'test_field',
             'field_name' => 'Test Field',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => false,
         ]);
@@ -44,14 +45,14 @@ describe('CustomFieldManager - Search Functionality', function () {
         CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
         CmCustomField::create([
             'field_key' => 'role',
             'field_name' => 'Role',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -65,14 +66,14 @@ describe('CustomFieldManager - Search Functionality', function () {
         CmCustomField::create([
             'field_key' => 'employee_id',
             'field_name' => 'Employee ID',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
         CmCustomField::create([
             'field_key' => 'manager_id',
             'field_name' => 'Manager ID',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -88,7 +89,7 @@ describe('CustomFieldManager - Search Functionality', function () {
             CmCustomField::create([
                 'field_key' => "field_{$i}",
                 'field_name' => "Field {$i}",
-                'data_type' => 'text',
+                'data_type' => CustomFieldTypes::Text,
                 'is_active' => true,
             ]);
         }
@@ -107,7 +108,7 @@ describe('CustomFieldManager - Create Functionality', function () {
             ->assertSet('showCreateModal', true)
             ->assertSet('is_active', true)
             ->assertSet('is_user_editable', false)
-            ->assertSet('data_type', 'text');
+            ->assertSet('data_type', 'Text');
     });
 
     test('it closes create modal', function () {
@@ -124,7 +125,7 @@ describe('CustomFieldManager - Create Functionality', function () {
             ->call('openCreateModal')
             ->set('field_key', 'department')
             ->set('field_name', 'Department')
-            ->set('data_type', 'text')
+            ->set('data_type', 'Text')
             ->set('is_active', true)
             ->set('is_user_editable', false)
             ->call('createCustomField')
@@ -134,7 +135,7 @@ describe('CustomFieldManager - Create Functionality', function () {
 
         $field = CmCustomField::where('field_key', 'department')->first();
         expect($field->field_name)->toBe('Department');
-        expect($field->data_type)->toBe('text');
+        expect($field->data_type)->toBe(CustomFieldTypes::Text);
         expect($field->is_active)->toBeTrue();
         expect($field->is_user_editable)->toBeFalse();
     });
@@ -144,11 +145,11 @@ describe('CustomFieldManager - Create Functionality', function () {
             ->call('openCreateModal')
             ->set('field_key', 'employee_id')
             ->set('field_name', 'Employee ID')
-            ->set('data_type', 'number')
+            ->set('data_type', 'Number')
             ->call('createCustomField')
             ->assertHasNoErrors();
 
-        expect(CmCustomField::where('data_type', 'number')->exists())->toBeTrue();
+        expect(CmCustomField::where('data_type', CustomFieldTypes::Number)->exists())->toBeTrue();
     });
 
     test('it creates a date custom field', function () {
@@ -156,11 +157,11 @@ describe('CustomFieldManager - Create Functionality', function () {
             ->call('openCreateModal')
             ->set('field_key', 'hire_date')
             ->set('field_name', 'Hire Date')
-            ->set('data_type', 'date')
+            ->set('data_type', 'Date')
             ->call('createCustomField')
             ->assertHasNoErrors();
 
-        expect(CmCustomField::where('data_type', 'date')->exists())->toBeTrue();
+        expect(CmCustomField::where('data_type', CustomFieldTypes::Date)->exists())->toBeTrue();
     });
 
     test('it creates a multi_select custom field with options', function () {
@@ -168,7 +169,7 @@ describe('CustomFieldManager - Create Functionality', function () {
             ->call('openCreateModal')
             ->set('field_key', 'skills')
             ->set('field_name', 'Skills')
-            ->set('data_type', 'multi_select')
+            ->set('data_type', 'MultiSelectOne')
             ->set('options', 'PHP, Laravel, JavaScript')
             ->call('createCustomField')
             ->assertHasNoErrors();
@@ -188,7 +189,7 @@ describe('CustomFieldManager - Create Functionality', function () {
         CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -215,7 +216,7 @@ describe('CustomFieldManager - Create Functionality', function () {
             ->call('openCreateModal')
             ->set('field_key', 'bio')
             ->set('field_name', 'Biography')
-            ->set('data_type', 'text')
+            ->set('data_type', 'Text')
             ->set('is_user_editable', true)
             ->call('createCustomField')
             ->assertHasNoErrors();
@@ -234,132 +235,12 @@ describe('CustomFieldManager - Create Functionality', function () {
     });
 });
 
-describe('CustomFieldManager - Allow Multiple Functionality', function () {
-    test('it creates multi_select field with allow_multiple enabled', function () {
-        Livewire::test(CustomFieldManager::class)
-            ->call('openCreateModal')
-            ->set('field_key', 'skills')
-            ->set('field_name', 'Skills')
-            ->set('data_type', 'multi_select')
-            ->set('allow_multiple', true)
-            ->set('options', 'PHP, Laravel, JavaScript')
-            ->call('createCustomField')
-            ->assertHasNoErrors();
-
-        $field = CmCustomField::where('field_key', 'skills')->first();
-        expect($field->allow_multiple)->toBeTrue();
-        expect($field->data_type)->toBe('multi_select');
-    });
-
-    test('it creates multi_select field with allow_multiple disabled', function () {
-        Livewire::test(CustomFieldManager::class)
-            ->call('openCreateModal')
-            ->set('field_key', 'department')
-            ->set('field_name', 'Department')
-            ->set('data_type', 'multi_select')
-            ->set('allow_multiple', false)
-            ->set('options', 'Sales, Engineering, Marketing')
-            ->call('createCustomField')
-            ->assertHasNoErrors();
-
-        $field = CmCustomField::where('field_key', 'department')->first();
-        expect($field->allow_multiple)->toBeFalse();
-    });
-
-    test('it defaults allow_multiple to false when creating field', function () {
-        Livewire::test(CustomFieldManager::class)
-            ->call('openCreateModal')
-            ->assertSet('allow_multiple', false);
-    });
-
-    test('it updates field with allow_multiple enabled', function () {
-        $field = CmCustomField::create([
-            'field_key' => 'skills',
-            'field_name' => 'Skills',
-            'data_type' => 'multi_select',
-            'allow_multiple' => false,
-            'options' => ['Option 1', 'Option 2'],
-            'is_active' => true,
-        ]);
-
-        Livewire::test(CustomFieldManager::class)
-            ->call('openEditModal', $field->id)
-            ->set('allow_multiple', true)
-            ->call('updateCustomField')
-            ->assertHasNoErrors();
-
-        expect($field->fresh()->allow_multiple)->toBeTrue();
-    });
-
-    test('it updates field with allow_multiple disabled', function () {
-        $field = CmCustomField::create([
-            'field_key' => 'categories',
-            'field_name' => 'Categories',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
-            'options' => ['Cat 1', 'Cat 2'],
-            'is_active' => true,
-        ]);
-
-        Livewire::test(CustomFieldManager::class)
-            ->call('openEditModal', $field->id)
-            ->set('allow_multiple', false)
-            ->call('updateCustomField')
-            ->assertHasNoErrors();
-
-        expect($field->fresh()->allow_multiple)->toBeFalse();
-    });
-
-    test('it loads allow_multiple value when editing field', function () {
-        $field = CmCustomField::create([
-            'field_key' => 'tags',
-            'field_name' => 'Tags',
-            'data_type' => 'multi_select',
-            'allow_multiple' => true,
-            'options' => ['Tag 1', 'Tag 2'],
-            'is_active' => true,
-        ]);
-
-        Livewire::test(CustomFieldManager::class)
-            ->call('openEditModal', $field->id)
-            ->assertSet('allow_multiple', true);
-    });
-
-    test('it validates allow_multiple as boolean', function () {
-        Livewire::test(CustomFieldManager::class)
-            ->call('openCreateModal')
-            ->set('field_key', 'test')
-            ->set('field_name', 'Test')
-            ->set('data_type', 'multi_select')
-            ->set('allow_multiple', 'invalid')
-            ->call('createCustomField')
-            ->assertHasErrors(['allow_multiple']);
-    });
-
-    test('it allows allow_multiple for non-multi_select types without error', function () {
-        // While UI should only show checkbox for multi_select,
-        // backend should handle it gracefully for any type
-        Livewire::test(CustomFieldManager::class)
-            ->call('openCreateModal')
-            ->set('field_key', 'name')
-            ->set('field_name', 'Name')
-            ->set('data_type', 'text')
-            ->set('allow_multiple', true)
-            ->call('createCustomField')
-            ->assertHasNoErrors();
-
-        $field = CmCustomField::where('field_key', 'name')->first();
-        // Field is created, but allow_multiple doesn't affect text fields
-        expect($field)->not->toBeNull();
-    });
-});
-
 describe('CustomFieldManager - Edit Functionality', function () {
     test('it opens edit modal', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => false,
         ]);
@@ -369,7 +250,7 @@ describe('CustomFieldManager - Edit Functionality', function () {
             ->assertSet('showEditModal', true)
             ->assertSet('field_key', 'department')
             ->assertSet('field_name', 'Department')
-            ->assertSet('data_type', 'text')
+            ->assertSet('data_type', 'Text')
             ->assertSet('is_active', true)
             ->assertSet('is_user_editable', false);
     });
@@ -378,7 +259,7 @@ describe('CustomFieldManager - Edit Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
+            'data_type' => CustomFieldTypes::MultiSelectOne,
             'options' => ['PHP', 'Laravel', 'JavaScript'],
             'is_active' => true,
         ]);
@@ -392,7 +273,7 @@ describe('CustomFieldManager - Edit Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -407,7 +288,7 @@ describe('CustomFieldManager - Edit Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => false,
         ]);
@@ -428,7 +309,7 @@ describe('CustomFieldManager - Edit Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'skills',
             'field_name' => 'Skills',
-            'data_type' => 'multi_select',
+            'data_type' => CustomFieldTypes::MultiSelectOne,
             'options' => ['PHP', 'Laravel'],
             'is_active' => true,
         ]);
@@ -447,14 +328,14 @@ describe('CustomFieldManager - Edit Functionality', function () {
         $field1 = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
         $field2 = CmCustomField::create([
             'field_key' => 'role',
             'field_name' => 'Role',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -469,7 +350,7 @@ describe('CustomFieldManager - Edit Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -488,7 +369,7 @@ describe('CustomFieldManager - Edit Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -505,7 +386,7 @@ describe('CustomFieldManager - Delete Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -519,7 +400,7 @@ describe('CustomFieldManager - Delete Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -535,7 +416,7 @@ describe('CustomFieldManager - Delete Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -551,7 +432,7 @@ describe('CustomFieldManager - Delete Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -574,7 +455,7 @@ describe('CustomFieldManager - Delete Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -590,7 +471,7 @@ describe('CustomFieldManager - Toggle Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
@@ -611,7 +492,7 @@ describe('CustomFieldManager - Toggle Functionality', function () {
         $customField = CmCustomField::create([
             'field_key' => 'department',
             'field_name' => 'Department',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
             'is_user_editable' => false,
         ]);
@@ -636,7 +517,7 @@ describe('CustomFieldManager - Options Parsing', function () {
             ->call('openCreateModal')
             ->set('field_key', 'skills')
             ->set('field_name', 'Skills')
-            ->set('data_type', 'multi_select')
+            ->set('data_type', 'MultiSelectOne')
             ->set('options', 'PHP, Laravel, JavaScript')
             ->call('createCustomField');
 
@@ -649,7 +530,7 @@ describe('CustomFieldManager - Options Parsing', function () {
             ->call('openCreateModal')
             ->set('field_key', 'skills')
             ->set('field_name', 'Skills')
-            ->set('data_type', 'multi_select')
+            ->set('data_type', 'MultiSelectOne')
             ->set('options', '  PHP  ,  Laravel  ,  JavaScript  ')
             ->call('createCustomField');
 
@@ -662,7 +543,7 @@ describe('CustomFieldManager - Options Parsing', function () {
             ->call('openCreateModal')
             ->set('field_key', 'description')
             ->set('field_name', 'Description')
-            ->set('data_type', 'text')
+            ->set('data_type', 'Text')
             ->set('options', '')
             ->call('createCustomField');
 
@@ -675,7 +556,7 @@ describe('CustomFieldManager - Options Parsing', function () {
             ->call('openCreateModal')
             ->set('field_key', 'skills')
             ->set('field_name', 'Skills')
-            ->set('data_type', 'multi_select')
+            ->set('data_type', 'MultiSelectOne')
             ->set('options', 'PHP, , Laravel, , JavaScript')
             ->call('createCustomField');
 
@@ -692,7 +573,7 @@ describe('CustomFieldManager - Pagination', function () {
             CmCustomField::create([
                 'field_key' => "field_{$i}",
                 'field_name' => "Field {$i}",
-                'data_type' => 'text',
+                'data_type' => CustomFieldTypes::Text,
                 'is_active' => true,
             ]);
         }
@@ -708,7 +589,7 @@ describe('CustomFieldManager - Pagination', function () {
             CmCustomField::create([
                 'field_key' => "test_{$i}",
                 'field_name' => "Test {$i}",
-                'data_type' => 'text',
+                'data_type' => CustomFieldTypes::Text,
                 'is_active' => true,
             ]);
         }
@@ -716,7 +597,7 @@ describe('CustomFieldManager - Pagination', function () {
         CmCustomField::create([
             'field_key' => 'other',
             'field_name' => 'Other',
-            'data_type' => 'text',
+            'data_type' => CustomFieldTypes::Text,
             'is_active' => true,
         ]);
 
