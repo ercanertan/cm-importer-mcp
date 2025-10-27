@@ -1,238 +1,1076 @@
-# Laravel & PHP Guidelines for AI Code Assistants
-
-This file contains Laravel and PHP coding standards optimized for AI code assistants like Claude Code, GitHub Copilot, and Cursor. These guidelines are derived from Spatie's comprehensive Laravel & PHP standards.
-
-## Core Laravel Principle
-
-**Follow Laravel conventions first.** If Laravel has a documented way to do something, use it. Only deviate when you have a clear justification.
+# Laravel Coding Standards with FluxUI
 
 ## PHP Standards
 
-- Follow PSR-1, PSR-2, and PSR-12
-- Use camelCase for non-public-facing strings
-- Use short nullable notation: `?string` not `string|null`
-- Always specify `void` return types when methods return nothing
+- When creating new PHP files, **always** add the `<?php` to the top of the file
+- Use PHP v8.4 features
+- Follow `pint.json` coding rules
+- Enforce strict types and array shapes via PHPStan
+- Use strict typing: `declare(strict_types=1)` but **NEVER** on `.blade.php` files. Only `.php`
+- Follow PSR-12 coding standards
+- Use descriptive variable and method names
+- Use Laravel's built-in features and helpers when possible
+- All Models must use `Model::unguard()` instead of `$fillable`
+- **DO NOT** use `php artisan tinker` for creating or updating code or database data
+- Use proper migrations, seeders, model factories, and Action classes instead of Tinker
 
-## Class Structure
-- Use typed properties, not docblocks:
-- Constructor property promotion when all properties can be promoted:
-- One trait per line:
+### Error Handling & Logging
 
-## Type Declarations & Docblocks
-- Use typed properties over docblocks
-- Specify return types including `void`
-- Use short nullable syntax: `?Type` not `Type|null`
-- Document iterables with generics:
-  ```php
-  /** @return Collection<int, User> */
-  public function getUsers(): Collection
-  ```
+- Use Laravel's exception handling and logging features
+- Create custom exceptions when necessary
+- Use try-catch blocks for expected exceptions
+- Implement proper error handling and logging
 
-### Docblock Rules
-- Don't use docblocks for fully type-hinted methods (unless description needed)
-- **Always import classnames in docblocks** - never use fully qualified names:
-  ```php
-  use \Spatie\Url\Url;
-  /** @return Url */
-  ```
-- Use one-line docblocks when possible: `/** @var string */`
-- Most common type should be first in multi-type docblocks:
-  ```php
-  /** @var Collection|SomeWeirdVendor\Collection */
-  ```
-- If one parameter needs docblock, add docblocks for all parameters
-- For iterables, always specify key and value types:
-  ```php
-  /**
-   * @param array<int, MyObject> $myArray
-   * @param int $typedArgument 
-   */
-  function someFunction(array $myArray, int $typedArgument) {}
-  ```
-- Use array shape notation for fixed keys, put each key on it's own line:
-  ```php
-  /** @return array{
-     first: SomeClass, 
-     second: SomeClass
-  } */
-  ```
+### Database & Performance
 
-## Control Flow
-- **Happy path last**: Handle error conditions first, success case last
-- **Avoid else**: Use early returns instead of nested conditions  
-- **Separate conditions**: Prefer multiple if statements over compound conditions
-- **Always use curly brackets** even for single statements
-- **Ternary operators**: Each part on own line unless very short
+- Implement proper database migrations and seeders
+- Must be for PostGreSQL best practices
+- Utilize Laravel's caching mechanisms for improved performance
+- **DO NOT** use Tinker for database operations - use migrations, seeders, and model factories instead
+- All database changes must be version-controlled through proper Laravel tools
+
+## HTTP Request Standards
+
+### POST / PATCH / PUT / DELETE Requests
+
+- **MUST** use a dedicated `FormRequest` class for validation
+- **DO NOT** validate inside controllers or action classes
+
+Example:
 
 ```php
-// Happy path last
-if (! $user) {
-    return null;
+public function store(CreateUserRequest $request)
+{
+    CreateUser::run($request->validated());
 }
-
-if (! $user->isActive()) {
-    return null;
-}
-
-// Process active user...
-
-// Short ternary
-$name = $isFoo ? 'foo' : 'bar';
-
-// Multi-line ternary
-$result = $object instanceof Model ?
-    $object->name :
-    'A default value';
-
-// Ternary instead of else
-$condition
-    ? $this->doSomething()
-    : $this->doSomethingElse();
 ```
 
-## Laravel Conventions
+### GET Requests
 
-### Routes
-- URLs: kebab-case (`/open-source`)
-- Route names: camelCase (`->name('openSource')`)
-- Parameters: camelCase (`{userId}`)
-- Use tuple notation: `[Controller::class, 'method']`
+- **MUST** use a Laravel Resource or ResourceCollection class for transforming data
+- **AVOID** returning Eloquent models or arrays directly
 
-### Controllers
-- Plural resource names (`PostsController`)
-- Stick to CRUD methods (`index`, `create`, `store`, `show`, `edit`, `update`, `destroy`)
-- Extract new controllers for non-CRUD actions
+Example:
 
-### Configuration
-- Files: kebab-case (`pdf-generator.php`)
-- Keys: snake_case (`chrome_path`)
-- Add service configs to `config/services.php`, don't create new files
-- Use `config()` helper, avoid `env()` outside config files
+```php
+public function index()
+{
+    return new UserResource($user);
+}
+```
 
-### Artisan Commands
-- Names: kebab-case (`delete-old-records`)
-- Always provide feedback (`$this->comment('All ok!')`)
-- Show progress for loops, summary at end
-- Put output BEFORE processing item (easier debugging):
-  ```php
-  $items->each(function(Item $item) {
-      $this->info("Processing item id `{$item->id}`...");
-      $this->processItem($item);
-  });
-  
-  $this->comment("Processed {$items->count()} items.");
-  ```
+## Routing Standards
 
-## Strings & Formatting
+### Controller-Based Routing (Preferred)
 
-- **String interpolation** over concatenation:
+- **MUST** use controller-based routing for Livewire components
+- **MORE RELIABLE**: Controller-based routing is more stable than direct Livewire routing
+- **BETTER ERROR HANDLING**: Controllers can validate data and handle errors before rendering
+- **EASIER DEBUGGING**: Clear separation between route handling and component logic
+- **STANDARD LARAVEL PATTERN**: Follows Laravel best practices
 
-## Enums
+Example:
 
-- Use PascalCase for enum values:
+```php
+// routes/web.php
+use App\Http\Controllers\UserController;
 
-## Comments
+Route::get('/users', [UserController::class, 'index'])->name('users.index');
+Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
+Route::get('/users/{user}', [UserController::class, 'show'])->name('users.show');
+Route::post('/users', [UserController::class, 'store'])->name('users.store');
+```
 
-- **Avoid comments** - write expressive code instead
-- When needed, use proper formatting:
-  ```php
-  // Single line with space after //
-  
-  /*
-   * Multi-line blocks start with single *
-   */
-  ```
-- Refactor comments into descriptive function names
+```php
+// app/Http/Controllers/UserController.php
+<?php
 
-## Whitespace
+declare(strict_types=1);
 
-- Add blank lines between statements for readability
-- Exception: sequences of equivalent single-line operations
-- No extra empty lines between `{}` brackets
-- Let code "breathe" - avoid cramped formatting
+namespace App\Http\Controllers;
 
-## Validation
+use App\Actions\Users\CreateUser;
+use App\Http\Requests\CreateUserRequest;
+use App\Http\Resources\UserResource;
+use App\Livewire\Users\Create as CreateUserComponent;
+use App\Livewire\Users\Index as IndexUsersComponent;
+use App\Livewire\Users\Show as ShowUserComponent;
+use App\Models\User;
 
-- Use array notation for multiple rules (easier for custom rule classes):
-  ```php
-  public function rules() {
-      return [
-          'email' => ['required', 'email'],
-      ];
-  }
-  ```
-- Custom validation rules use snake_case:
-  ```php
-  Validator::extend('organisation_type', function ($attribute, $value) {
-      return OrganisationType::isValid($value);
-  });
-  ```
+class UserController extends Controller
+{
+    public function index()
+    {
+        return IndexUsersComponent::class;
+    }
 
-## Blade Templates
+    public function create()
+    {
+        return CreateUserComponent::class;
+    }
 
-- Indent with 4 spaces
-- No spaces after control structures:
-  ```blade
-  @if($condition)
-      Something
-  @endif
-  ```
+    public function show(User $user)
+    {
+        return ShowUserComponent::class;
+    }
 
-## Authorization
+    public function store(CreateUserRequest $request)
+    {
+        $user = CreateUser::run($request->validated());
+        return redirect()->route('users.show', $user)
+            ->with('success', 'User created successfully.');
+    }
+}
+```
 
-- Policies use camelCase: `Gate::define('editPost', ...)`
-- Use CRUD words, but `view` instead of `show`
+### Direct Livewire Routing (Discouraged)
 
-## Translations
+- **AVOID** direct Livewire component routing in routes/web.php
+- **ONLY** use for simple, non-critical pages without complex business logic
+- **NEVER** use deprecated `Route::livewire()` method
 
-- Use `__()` function over `@lang`:
+❌ **Discouraged Pattern:**
 
-## API Routing
+```php
+use App\Livewire\Users\Create as CreateUser;
+use App\Livewire\Users\Show as ShowUser;
+use App\Livewire\Users\Index as ListUsers;
 
-- Use plural resource names: `/errors`
-- Use kebab-case: `/error-occurrences`
-- Limit deep nesting for simplicity:
-  ```
-  /error-occurrences/1
-  /errors/1/occurrences
-  ```
+// Avoid direct component routing
+Route::get('/users', ListUsers::class)->name('users.index');
+Route::get('/users/create', CreateUser::class)->name('users.create');
+Route::get('/users/{user}', ShowUser::class)->name('users.show');
+```
 
-## Testing
+❌ **Never Use Deprecated Method:**
 
-- Keep test classes in same file when possible
-- Use descriptive test method names
-- Follow the arrange-act-assert pattern
+```php
+Route::livewire('/users', 'users.index'); // Wrong: Deprecated
+```
 
-## Quick Reference
+✅ **Correct Pattern:**
+
+```php
+// Correct: Controller-based routing
+Route::get('/users', [UserController::class, 'index'])->name('users.index');
+Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
+```
+
+## Directory and Structure Standards
+
+### Actions
+
+- All business logic MUST be encapsulated in `app/Actions`
+- Actions MUST use the `run()` static method convention
+- DO NOT perform business logic in controllers or routes
+
+Example:
+
+```php
+namespace App\Actions\Users;
+
+class CreateUser
+{
+    public static function run(array $data): User
+    {
+        return User::create($data);
+    }
+}
+```
 
 ### Naming Conventions
-- **Classes**: PascalCase (`UserController`, `OrderStatus`)
-- **Methods/Variables**: camelCase (`getUserName`, `$firstName`)
-- **Routes**: kebab-case (`/open-source`, `/user-profile`)
-- **Config files**: kebab-case (`pdf-generator.php`)
-- **Config keys**: snake_case (`chrome_path`)
-- **Artisan commands**: kebab-case (`php artisan delete-old-records`)
 
-### File Structure
-- Controllers: plural resource name + `Controller` (`PostsController`)
-- Views: camelCase (`openSource.blade.php`)  
-- Jobs: action-based (`CreateUser`, `SendEmailNotification`)
-- Events: tense-based (`UserRegistering`, `UserRegistered`)
-- Listeners: action + `Listener` suffix (`SendInvitationMailListener`)
-- Commands: action + `Command` suffix (`PublishScheduledPostsCommand`)
-- Mailables: purpose + `Mail` suffix (`AccountActivatedMail`)
-- Resources/Transformers: plural + `Resource`/`Transformer` (`UsersResource`)
-- Enums: descriptive name, no prefix (`OrderStatus`, `BookingType`)
+- FormRequest classes: Use verb-object style (e.g., `CreateUserRequest`, `UpdateProfileRequest`)
+- Action classes: Place under relevant domains (e.g., `App/Actions/Users/CreateUser.php`)
+- Resources: Match model name (e.g., `UserResource`, `ProductResource`)
 
-### Migrations
-- do not write down methods in migrations, only up methods
+### Project Structure
 
-### Code Quality Reminders
+```
+app/
+├── Actions/
+│   └── Users/
+│       ├── CreateUser.php
+│       └── UpdateUser.php
+├── Http/
+│   ├── Controllers/
+│   │   └── UserController.php
+│   └── Requests/
+│       ├── CreateUserRequest.php
+│       └── UpdateUserRequest.php
+├── Resources/
+│   └── UserResource.php
+└── Livewire/
+    └── Users/
+        ├── Create.php
+        ├── Show.php
+        └── Index.php
 
-#### PHP
-- Use typed properties over docblocks
-- Prefer early returns over nested if/else
-- Use constructor property promotion when all properties can be promoted
-- Avoid `else` statements when possible
-- Use string interpolation over concatenation
-- Always use curly braces for control structures
+resources/
+└── views/
+    └── livewire/
+        └── users/
+            ├── create.blade.php
+            ├── show.blade.php
+            └── index.blade.php
+```
+
+## Livewire and Frontend Standards
+
+### FluxUI Component Usage
+
+- **Layout & Structure**
+  - Wrap content sections in `<flux:card>` components
+  - Use `<flux:layout>` for page structure
+  - Implement `<flux:header>` and `<flux:sidebar>` for navigation
+  - Use `<flux:separator>` for visual dividers
+
+- **Typography & Text**
+  - Use `<flux:heading>` for all headings
+  - Implement `<flux:text>` for paragraphs
+  - Use `<flux:brand>` for company/app branding
+  - Apply `<flux:badge>` for status indicators
+
+- **Navigation & Interaction**
+  - Use `<flux:navbar>` for main navigation
+  - Implement `<flux:breadcrumbs>` for page hierarchy
+  - Use `<flux:command>` for command palettes
+  - Apply `<flux:context>` for right-click menus
+  - Use `<flux:dropdown>` for menu options
+  - Use `<flux:popover>` for popovers and use in dropdown divs
+  - Use `<flux:radio>` for Radio groups and options
+
+- **Forms & Input**
+  - Use `<flux:input>` for text fields
+  - Implement `<flux:textarea>` for multi-line input
+  - Use `<flux:select>` for dropdowns
+  - Apply `<flux:checkbox>` and `<flux:radio>` for selections
+  - Use `<flux:switch>` for toggles
+  - Implement `<flux:date-picker>` for date selection
+  - Use `<flux:autocomplete>` for smart search inputs
+  - Apply `<flux:editor>` for rich text editing
+
+- **Data Display**
+  - Use `<flux:table>` for data grids
+  - Implement `<flux:pagination>` for data navigation
+  - Use `<flux:chart>` for data visualization
+  - Apply `<flux:calendar>` for date-based data
+
+- **Feedback & Alerts**
+  - Use `<flux:modal>` for dialogs
+  - Implement `<flux:toast>` for notifications
+  - Use `<flux:callout>` for important messages
+  - Apply `<flux:tooltip>` for contextual help
+
+- **User Interface**
+  - Use `<flux:avatar>` for user images
+  - Implement `<flux:profile>` for user information
+  - Use `<flux:accordion>` for collapsible content
+  - Apply `<flux:tabs>` for content organization
+
+- **Best Practices**
+  - Compose components for complex interfaces
+  - Use dark mode support with `$store.darkMode`
+  - Implement responsive design with Tailwind classes
+  - Keep Alpine.js logic close to components
+  - Follow FluxUI's composition principles
+  - **DO NOT** use Custom CSS in Form inputs and Tables and Cards. Only allow FluxUI to use their own styles.
+
+Example:
+
+```php
+<flux:card>
+    <flux:heading>Section Title</flux:heading>
+    <flux:text>
+        This is a paragraph of text that explains something important.
+    </flux:text>
+
+    <flux:separator />
+
+    <div class="mt-4">
+        <flux:button wire:click="openModal">
+            Open Modal
+        </flux:button>
+    </div>
+</flux:card>
+
+<flux:modal wire:model="showModal">
+    <flux:heading>Modal Title</flux:heading>
+    <flux:text>Modal content goes here.</flux:text>
+</flux:modal>
+```
+
+### Server Truth Rule
+
+- All frontend data must reference server-defined Eloquent Models or API responses
+- Field names must match exactly with backend counterparts
+- Server is the single source of truth for data schemas
+- Use proper transformers for snake_case backend fields with camelCase in Livewire
+- Make schema changes server-side with proper migrations
+
+### Alpine.js Usage with FluxUI
+
+- Use FluxUI's built-in Alpine.js integration
+- Combine FluxUI components with Alpine.js for enhanced interactivity
+- Keep Alpine.js logic close to FluxUI components
+
+Example:
+
+```php
+<flux:card x-data="{ open: false }">
+    <flux:button @click="open = !open">
+        Toggle Content
+    </flux:button>
+
+    <div x-show="open" x-transition>
+        <flux:text>
+            This content can be toggled.
+        </flux:text>
+    </div>
+</flux:card>
+```
+
+## 🚫 Anti-Patterns to Avoid
+
+### UI Components
+
+❌ DO NOT use raw HTML elements when FluxUI components are available:
+
+```php
+<div class="card"> <!-- Wrong -->
+    <h1>Title</h1>
+    <p>Content</p>
+</div>
+
+<flux:card> <!-- Correct -->
+    <flux:heading>Title</flux:heading>
+    <flux:text>Content</flux:text>
+</flux:card>
+```
+
+❌ DO NOT use styles FluxUI form and table components:
+
+```php
+<flux:textarea class="bg-white rounded text-grey-500">
+```
+
+❌ DO NOT create undocumented FluxUI components:
+
+```php
+<flux:table.header>  <!-- Wrong: Invented component -->
+    <flux:column>Title</flux:column>
+</flux:table.header>
+
+<flux:table :paginate="$this->orders"> <!-- Correct: Use only documented components -->
+    <flux:table.columns>
+        <flux:table.column>Customer</flux:table.column>
+        <flux:table.column sortable :sorted="$sortBy === 'date'" :direction="$sortDirection" wire:click="sort('date')">Date</flux:table.column>
+        <flux:table.column sortable :sorted="$sortBy === 'status'" :direction="$sortDirection" wire:click="sort('status')">Status</flux:table.column>
+        <flux:table.column sortable :sorted="$sortBy === 'amount'" :direction="$sortDirection" wire:click="sort('amount')">Amount</flux:table.column>
+    </flux:table.columns>
+    <flux:table.rows>
+        @foreach ($this->orders as $order)
+            <flux:table.row :key="$order->id">
+                <flux:table.cell class="flex items-center gap-3">
+                    <flux:avatar size="xs" src="{{ $order->customer_avatar }}" />
+                    {{ $order->customer }}
+                </flux:table.cell>
+                <flux:table.cell class="whitespace-nowrap">{{ $order->date }}</flux:table.cell>
+                <flux:table.cell>
+                    <flux:badge size="sm" :color="$order->status_color" inset="top bottom">{{ $order->status }}</flux:badge>
+                </flux:table.cell>
+                <flux:table.cell variant="strong">{{ $order->amount }}</flux:table.cell>
+                <flux:table.cell>
+                    <flux:button variant="ghost" size="sm" icon="ellipsis-horizontal" inset="top bottom"></flux:button>
+                </flux:table.cell>
+            </flux:table.row>
+        @endforeach
+    </flux:table.rows>
+</flux:table>
+```
+
+❌ DO NOT assume component existence:
+
+```php
+<flux:card.header>  <!-- Wrong: Assumed sub-component -->
+    <flux:title>Card Title</flux:title>
+</flux:card.header>
+
+<flux:card>  <!-- Correct: Use documented structure -->
+    <flux:heading>Card Title</flux:heading>
+    <flux:text class="mt-2">Welcome back!</flux:text>
+</flux:card>
+```
+
+### Controllers
+
+❌ DO NOT validate inline:
+
+```php
+$validated = $request->validate([...]); // Wrong
+```
+
+### Models
+
+❌ DO NOT return raw models:
+
+```php
+return User::all(); // Wrong
+```
+
+### Business Logic
+
+❌ DO NOT put business logic in controllers:
+
+```php
+$user = User::create([...]); // Wrong
+```
+
+### Livewire
+
+❌ DO NOT use deprecated Route::livewire():
+
+```php
+Route::livewire('/users', 'users.index'); // Wrong: Deprecated
+```
+
+❌ DO NOT use direct Livewire routing for complex features:
+
+```php
+// Wrong: Direct routing for complex features
+Route::get('/users', ListUsers::class)->name('users.index');
+Route::get('/users/create', CreateUser::class)->name('users.create');
+```
+
+✅ DO use controller-based routing instead:
+
+```php
+// Correct: Controller-based routing
+Route::get('/users', [UserController::class, 'index'])->name('users.index');
+Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
+```
+
+## Example Components
+
+### Controller Example
+
+```php
+use App\Actions\Users\CreateUser;
+use App\Http\Requests\CreateUserRequest;
+use App\Http\Resources\UserResource;
+
+class UserController extends Controller
+{
+    public function store(CreateUserRequest $request)
+    {
+        $user = CreateUser::run($request->validated());
+        return new UserResource($user);
+    }
+
+    public function show(User $user)
+    {
+        return new UserResource($user);
+    }
+}
+```
+
+### Livewire Component Example
+
+```php
+namespace App\Livewire\Users;
+
+use Livewire\Component;
+use App\Models\User;
+use App\Actions\Users\CreateUser;
+
+class Create extends Component
+{
+    public string $name = '';
+    public string $email = '';
+    public string $password = '';
+
+    protected $rules = [
+        'name' => 'required|min:3',
+        'email' => 'required|email|unique:users',
+        'password' => 'required|min:8',
+    ];
+
+    public function save()
+    {
+        $validated = $this->validate();
+        $user = CreateUser::run($validated);
+        session()->flash('message', 'User created successfully.');
+        return redirect()->route('users.show', $user);
+    }
+
+    public function render()
+    {
+        return view('livewire.users.create');
+    }
+}
+```
+
+### Routes Example
+
+```php
+// Preferred: Controller-based routing
+use App\Http\Controllers\UserController;
+
+Route::get('/users', [UserController::class, 'index'])->name('users.index');
+Route::get('/users/create', [UserController::class, 'create'])->name('users.create');
+Route::get('/users/{user}', [UserController::class, 'show'])->name('users.show');
+Route::post('/users', [UserController::class, 'store'])->name('users.store');
+
+// Controller returns Livewire component
+class UserController extends Controller
+{
+    public function index()
+    {
+        return IndexUsersComponent::class;
+    }
+
+    public function create()
+    {
+        return CreateUserComponent::class;
+    }
+
+    public function show(User $user)
+    {
+        return ShowUserComponent::class;
+    }
+}
+```
+
+## FluxUI Component Standards
+
+### Core Components
+
+#### Accordion
+
+```php
+<flux:card>
+    <flux:accordion>
+        <flux:accordion.item>
+            <flux:accordion.heading>Section 1</flux:accordion.heading>
+            <flux:accordion.content>Content 1</flux:accordion.content>
+        </flux:accordion.item>
+        <flux:accordion.item>
+            <flux:accordion.heading>Section 2</flux:accordion.heading>
+            <flux:accordion.content>Content 2</flux:accordion.content>
+        </flux:accordion.item>
+    </flux:accordion>
+</flux:card>
+```
+
+#### Autocomplete
+
+```php
+<flux:card>
+    <flux:autocomplete
+        wire:model="selected"
+        :options="$options"
+        label="Select User"
+    />
+</flux:card>
+```
+
+#### Avatar
+
+```php
+<flux:avatar
+    src="{{ $user->profile_photo_url }}"
+    alt="{{ $user->name }}"
+/>
+
+<flux:avatar.group>
+    @foreach($users as $user)
+        <flux:avatar
+            src="{{ $user->profile_photo_url }}"
+            alt="{{ $user->name }}"
+        />
+    @endforeach
+</flux:avatar.group>
+```
+
+#### Badge
+
+```php
+<flux:badge>New</flux:badge>
+<flux:badge variant="warning">Pending</flux:badge>
+<flux:badge variant="danger">Error</flux:badge>
+```
+
+#### Brand
+
+```php
+<flux:brand>
+    <flux:brand.logo />
+    <flux:brand.name>Company Name</flux:brand.name>
+</flux:brand>
+```
+
+#### Radio Groups
+
+```php
+<flux:radio.group wire:model="priority" label="Priority" variant="pills">
+    <flux:radio value="low" label="Low" />
+    <flux:radio value="medium" label="Medium" />
+    <flux:radio value="high" label="High" />
+    <flux:radio value="critical" label="Critical" />
+</flux:radio.group>
+
+<flux:radio.group variant="buttons" class="w-full *:flex-1" label="Feedback type">
+    <flux:radio icon="bug-ant" checked>Bug report</flux:radio>
+    <flux:radio icon="light-bulb">Suggestion</flux:radio>
+    <flux:radio icon="question-mark-circle">Question</flux:radio>
+</flux:radio.group>
+```
+
+#### Popovers
+
+```php
+<flux:dropdown>
+    <flux:button
+        icon="adjustments-horizontal"
+        icon:variant="micro"
+        icon:class="text-zinc-400"
+        icon-trailing="chevron-down"
+        icon-trailing:variant="micro"
+        icon-trailing:class="text-zinc-400"
+    >
+        Options
+    </flux:button>
+
+    <flux:popover class="flex flex-col gap-4">
+        <flux:radio.group wire:model="sort" label="Sort by" label:class="text-zinc-500 dark:text-zinc-400">
+            <flux:radio value="active" label="Recently active" />
+            <flux:radio value="posted" label="Date posted" checked />
+        </flux:radio.group>
+
+        <flux:separator variant="subtle" />
+
+        <flux:radio.group wire:model="view" label="View as" label:class="text-zinc-500 dark:text-zinc-400">
+            <flux:radio value="list" label="List" checked />
+            <flux:radio value="gallery" label="Gallery" />
+        </flux:radio.group>
+
+        <flux:separator variant="subtle" />
+
+        <flux:button variant="subtle" size="sm" class="justify-start -m-2 px-2!">Reset to default</flux:button>
+    </flux:popover>
+</flux:dropdown>
+
+<!-- Feedback forms -->
+<flux:dropdown>
+    <flux:button icon="chat-bubble-oval-left" icon:variant="micro" icon:class="text-zinc-300">
+        Feedback
+    </flux:button>
+    <flux:popover class="min-w-[30rem] flex flex-col gap-4">
+        <flux:radio.group variant="buttons" class="*:flex-1">
+            <flux:radio icon="bug-ant" checked>Bug report</flux:radio>
+            <flux:radio icon="light-bulb">Suggestion</flux:radio>
+            <flux:radio icon="question-mark-circle">Question</flux:radio>
+        </flux:radio.group>
+        <div class="relative">
+            <flux:textarea
+                rows="8"
+                class="dark:bg-transparent!"
+                placeholder="Please include reproduction steps. You may attach images or video files."
+            />
+            <div class="absolute bottom-3 left-3 flex items-center gap-2">
+                <flux:button variant="filled" size="xs" icon="face-smile" icon:variant="outline" icon:class="text-zinc-400 dark:text-zinc-300" />
+                <flux:button variant="filled" size="xs" icon="paper-clip" icon:class="text-zinc-400 dark:text-zinc-300" />
+            </div>
+        </div>
+        <div class="flex gap-2 justify-end">
+            <flux:button variant="filled" size="sm" kbd="esc" class="w-28">Cancel</flux:button>
+            <flux:button size="sm" kbd="⏎" class="w-28">Submit</flux:button>
+        </div>
+    </flux:popover>
+</flux:dropdown>
+```
+
+#### Breadcrumbs
+
+```php
+<flux:breadcrumbs>
+    <flux:breadcrumbs.item href="/">Home</flux:breadcrumbs.item>
+    <flux:breadcrumbs.item href="/users">Users</flux:breadcrumbs.item>
+    <flux:breadcrumbs.item>Profile</flux:breadcrumbs.item>
+</flux:breadcrumbs>
+```
+
+#### Calendar
+
+```php
+<flux:card>
+    <flux:calendar
+        wire:model="selectedDate"
+        :events="$events"
+    />
+</flux:card>
+```
+
+#### Callout
+
+```php
+<flux:callout type="info">
+    <flux:callout.heading>Information</flux:callout.heading>
+    <flux:callout.text>Important information here.</flux:callout.text>
+</flux:callout>
+
+<flux:callout type="warning">
+    <flux:callout.heading>Warning</flux:callout.heading>
+    <flux:callout.text>Warning message here.</flux:callout.text>
+</flux:callout>
+```
+
+#### Chart
+
+```php
+<flux:card>
+    <flux:chart
+        type="line"
+        :data="$chartData"
+        :options="$chartOptions"
+    />
+</flux:card>
+```
+
+#### Command Palette
+
+```php
+<flux:command trigger="ctrl+k">
+    <flux:command.input placeholder="Search..." />
+    <flux:command.list>
+        <flux:command.group heading="Actions">
+            <flux:command.item>Create New...</flux:command.item>
+            <flux:command.item>Search...</flux:command.item>
+        </flux:command.group>
+    </flux:command.list>
+</flux:command>
+```
+
+#### Context Menu
+
+```php
+<flux:context>
+    <flux:button>Right Click Me</flux:button>
+    <flux:menu>
+        <flux:menu.item>Edit</flux:menu.item>
+        <flux:menu.item>Delete</flux:menu.item>
+        <flux:menu.separator />
+        <flux:menu.item>More Actions</flux:menu.item>
+    </flux:menu>
+</flux:context>
+```
+
+#### Date Picker
+
+```php
+<flux:card>
+    <flux:date-picker
+        wire:model="date"
+        label="Select Date"
+    />
+
+    <flux:date-picker
+        wire:model="dateRange"
+        mode="range"
+        label="Select Date Range"
+    />
+</flux:card>
+```
+
+#### Editor
+
+```php
+<flux:card>
+    <flux:editor
+        wire:model="content"
+        placeholder="Start writing..."
+    />
+</flux:card>
+```
+
+#### Form Components
+
+```php
+<flux:card>
+    <form wire:submit="save">
+        <flux:field>
+            <flux:label>Name</flux:label>
+            <flux:input wire:model="name" />
+            <flux:error name="name" />
+        </flux:field>
+
+        <flux:field>
+            <flux:label>Email</flux:label>
+            <flux:input type="email" wire:model="email" />
+            <flux:error name="email" />
+        </flux:field>
+
+        <flux:field>
+            <flux:label>Bio</flux:label>
+            <flux:textarea wire:model="bio" />
+        </flux:field>
+
+        <flux:field>
+            <flux:label>Preferences</flux:label>
+            <flux:checkbox wire:model="preferences" value="email">
+                Email notifications
+            </flux:checkbox>
+        </flux:field>
+
+        <flux:field>
+            <flux:label>Role</flux:label>
+            <flux:radio wire:model="role" value="admin">Admin</flux:radio>
+            <flux:radio wire:model="role" value="user">User</flux:radio>
+        </flux:field>
+
+        <flux:field>
+            <flux:label>Country</flux:label>
+            <flux:select wire:model="country" :options="$countries" />
+        </flux:field>
+
+        <flux:button type="submit">Save</flux:button>
+    </form>
+</flux:card>
+```
+
+#### Modal
+
+```php
+<flux:modal wire:model="showModal">
+    <flux:modal.header>
+        <flux:heading>Modal Title</flux:heading>
+    </flux:modal.header>
+
+    <flux:modal.body>
+        <flux:text>Modal content here.</flux:text>
+    </flux:modal.body>
+
+    <flux:modal.footer>
+        <flux:button wire:click="$set('showModal', false)">
+            Close
+        </flux:button>
+        <flux:button variant="primary" wire:click="save">
+            Save Changes
+        </flux:button>
+    </flux:modal.footer>
+</flux:modal>
+```
+
+#### Pagination
+
+```php
+<flux:card>
+    <flux:table>
+        <!-- Table content -->
+    </flux:table>
+
+    <flux:pagination :links="$users->links()" />
+</flux:card>
+```
+
+#### Profile
+
+```php
+<flux:card>
+    <flux:profile>
+        <flux:profile.avatar
+            src="{{ $user->profile_photo_url }}"
+            alt="{{ $user->name }}"
+        />
+        <flux:profile.info>
+            <flux:profile.name>{{ $user->name }}</flux:profile.name>
+            <flux:profile.title>{{ $user->title }}</flux:profile.title>
+        </flux:profile.info>
+    </flux:profile>
+</flux:card>
+```
+
+#### Switch
+
+```php
+<flux:switch wire:model="isActive">
+    Active Status
+</flux:switch>
+```
+
+#### Toast
+
+```php
+<flux:toast position="top-right">
+    <flux:toast.title>Success</flux:toast.title>
+    <flux:toast.description>
+        Your changes have been saved.
+    </flux:toast.description>
+</flux:toast>
+```
+
+#### Tooltip
+
+```php
+<flux:tooltip text="More information">
+    <flux:button>Hover Me</flux:button>
+</flux:tooltip>
+```
+
+### Layout Components
+
+#### Header
+
+```php
+<flux:header>
+    <flux:navbar>
+        <flux:brand>
+            <flux:brand.logo />
+            <flux:brand.name>App Name</flux:brand.name>
+        </flux:brand>
+
+        <flux:navbar.items>
+            <flux:navbar.item wire:navigate href="/dashboard">
+                Dashboard
+            </flux:navbar.item>
+            <flux:navbar.item wire:navigate href="/users">
+                Users
+            </flux:navbar.item>
+        </flux:navbar.items>
+
+        <flux:navbar.profile :user="$user" />
+    </flux:navbar>
+</flux:header>
+```
+
+#### Sidebar
+
+```php
+<flux:sidebar>
+    <flux:sidebar.header>
+        <flux:brand>
+            <flux:brand.logo />
+        </flux:brand>
+    </flux:sidebar.header>
+
+    <flux:sidebar.nav>
+        <flux:sidebar.item wire:navigate href="/dashboard">
+            <flux:icon name="home" />
+            Dashboard
+        </flux:sidebar.item>
+        <flux:sidebar.item wire:navigate href="/users">
+            <flux:icon name="users" />
+            Users
+        </flux:sidebar.item>
+    </flux:sidebar.nav>
+</flux:sidebar>
+```
+
+### Best Practices
+
+1. **Component Composition**
+
+```php
+<flux:card>
+    <flux:dropdown>
+        <flux:button>Options</flux:button>
+        <flux:menu>
+            <flux:menu.item>Edit</flux:menu.item>
+            <flux:menu.item>Delete</flux:menu.item>
+        </flux:menu>
+    </flux:dropdown>
+</flux:card>
+```
+
+2. **Dark Mode Support**
+
+```php
+<flux:button x-on:click="$store.darkMode.toggle()">
+    <flux:icon name="sun" x-show="!$store.darkMode.on" />
+    <flux:icon name="moon" x-show="$store.darkMode.on" />
+</flux:button>
+```
+
+3. **Responsive Design**
+
+```php
+<flux:card>
+    <flux:heading class="md:text-lg lg:text-xl">
+        Responsive Title
+    </flux:heading>
+    <flux:text class="md:columns-2 lg:columns-3">
+        Content that adapts to screen size
+    </flux:text>
+</flux:card>
+```
+
+### FluxUI Component Validation
+
+- **MUST** only use documented FluxUI components
+- **NEVER** create or invent new FluxUI components
+- **ALWAYS** verify component existence in FluxUI documentation before use
+- **DO NOT** assume component existence based on naming conventions
+- **DO NOT** create custom component variations without explicit documentation
+- **MUST** use exact component names as documented
+- When in doubt, refer to the FluxUI component examples in this document
+
+### Component Naming Rules
+
+- Use exact component names: `<flux:button>`, `<flux:card>`, etc.
+- **NEVER** create compound components (e.g., `<flux:table.header>`) unless explicitly documented
+- **DO NOT** assume sub-components exist based on common patterns
+- **ALWAYS** verify nested component syntax in documentation
+
+### FluxUI Available Components
+
+The following are the ONLY available FluxUI components. Any component not listed here should NOT be used:
+
+#### Basic Components
+
+- `<flux:card>` - Container component
+- `<flux:heading>` - Section headings
+- `<flux:text>` - Paragraph text
+- `<flux:link>` - Navigation links
+- `<flux:button>` - Action buttons
+- `<flux:header>` - Page header container
+- `<flux:callout>` - Alert/notification messages
+- `<flux:separator>` - Visual divider
+
+#### Form Components
+
+- `<flux:input>` - Text input fields
+- `<flux:textarea>` - Multi-line text input
+- `<flux:label>` - Form field labels
+- `<flux:error>` - Form validation errors
+- `<flux:field>` - Form field container
+
+#### Data Display
+
+- `<flux:table>` - Data tables
+- `<flux:badge>` - Status indicators
+
+❌ DO NOT use any component variations or subcomponents unless explicitly listed above
+❌ DO NOT create compound components (e.g., `flux:button.icon`, `flux:card.header`)
+❌ DO NOT assume components exist based on common patterns from other UI libraries
+
+Example of correct usage:
+
+```php
+<flux:card>
+    <flux:heading>Title</flux:heading>
+    <flux:text>Content</flux:text>
+    <flux:button>Action</flux:button>
+</flux:card>
+```
+
+Example of incorrect usage:
+
+```php
+<flux:card.header>  <!-- Wrong: Compound component -->
+    <flux:card.title>Title</flux:card.title>  <!-- Wrong: Not documented -->
+</flux:card.header>
+
+<flux:navbar.items>  <!-- Wrong: Not documented -->
+    <flux:navbar.item>Link</flux:navbar.item>  <!-- Wrong: Not documented -->
+</flux:navbar.items>
+```

@@ -1,0 +1,36 @@
+{
+    "name": "livewire/flux-pro",
+    "description": "The pro version of Flux, the official UI component library for Livewire.",
+    "keywords": ["kenndeclouv", "flux", "laravel", "livewire", "components", "ui"],
+    "license": "proprietary",
+    "version": "1.0.0",
+    "authors": [
+        {
+            "name": "kenndeclouv",
+            "email": "kenndeclouv@gmail.com"
+        }
+    ],
+    "require": {
+
+    },
+    "autoload": {
+        "psr-4": {
+            "FluxPro\\": "src/"
+        },
+        "files": [
+            "src/helpers.php"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "FluxPro\\FluxProServiceProvider"
+            ],
+            "aliases": {
+                "Flux": "FluxPro\\FluxPro"
+            }
+        }
+    },
+    "minimum-stability" :  "dev" ,
+    "prefer-stable" :  false
+}

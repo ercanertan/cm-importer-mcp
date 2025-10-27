@@ -47,6 +47,12 @@ class OrganizationManager extends Component
     public $pollingInterval = null;
 
     // Form fields
+    public array $data = [
+        ['date' => '2025-10-26', 'visitors' => 267],
+        ['date' => '2025-10-25', 'visitors' => 259],
+        ['date' => '2025-10-24', 'visitors' => 269],
+        // ...
+    ];
     public $name = '';
     public $description = '';
     public $is_active = true;
