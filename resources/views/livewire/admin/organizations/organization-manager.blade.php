@@ -147,9 +147,11 @@
 
                             <div class="mb-4">
                                 <label class="flex items-center cursor-pointer">
-                                    <input wire:model="is_active" type="checkbox"
-                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4">
-                                    <span class="ml-2 text-sm font-medium text-gray-900">Active</span>
+                                    <flux:switch
+                                        wire:model="is_active"
+                                        class="mr-2">
+                                    </flux:switch>
+                                    <span class="text-sm font-medium text-gray-900">Active</span>
                                 </label>
                             </div>
 
@@ -165,8 +167,10 @@
 
                             <div class="mb-4">
                                 <label class="flex items-start cursor-pointer">
-                                    <input wire:model="syncUsers" type="checkbox"
-                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4 mt-0.5">
+                                    <flux:switch
+                                        wire:model="syncUsers"
+                                        class="mt-0.5 mr-2">
+                                    </flux:switch>
                                     <div class="ml-2">
                                         <span class="text-sm font-medium text-gray-900">Sync Existing Users</span>
                                         <p class="text-xs text-gray-600 mt-1">Automatically assign existing users with these domain emails to this organization</p>
@@ -232,9 +236,11 @@
 
                             <div class="mb-4">
                                 <label class="flex items-center cursor-pointer">
-                                    <input wire:model="is_active" type="checkbox"
-                                           class="rounded border-gray-300 text-purple-600 shadow-sm focus:border-purple-300 focus:ring focus:ring-purple-200 focus:ring-opacity-50 w-4 h-4">
-                                    <span class="ml-2 text-sm font-medium text-gray-900">Active</span>
+                                    <flux:switch
+                                        wire:model="is_active"
+                                        class="mr-2">
+                                    </flux:switch>
+                                    <span class="text-sm font-medium text-gray-900">Active</span>
                                 </label>
                             </div>
 
@@ -392,9 +398,11 @@
 
                             <div class="mb-4">
                                 <label class="flex items-center cursor-pointer">
-                                    <input wire:model="is_active" type="checkbox"
-                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4">
-                                    <span class="ml-2 text-sm font-medium text-gray-900">Active</span>
+                                    <flux:switch
+                                        wire:model="is_active"
+                                        class="mr-2">
+                                    </flux:switch>
+                                    <span class="text-sm font-medium text-gray-900">Active</span>
                                 </label>
                             </div>
 
@@ -410,8 +418,10 @@
 
                             <div class="mb-4">
                                 <label class="flex items-start cursor-pointer">
-                                    <input wire:model="syncUsers" type="checkbox"
-                                           class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4 mt-0.5">
+                                    <flux:switch
+                                        wire:model="syncUsers"
+                                        class="mt-0.5 mr-2">
+                                    </flux:switch>
                                     <div class="ml-2">
                                         <span class="text-sm font-medium text-gray-900">Sync Users on Update</span>
                                         <p class="text-xs text-gray-600 mt-1">Automatically assign existing users with these domain emails to this organization when updating</p>
@@ -477,9 +487,11 @@
 
                             <div class="mb-4">
                                 <label class="flex items-center cursor-pointer">
-                                    <input wire:model="is_active" type="checkbox"
-                                           class="rounded border-gray-300 text-purple-600 shadow-sm focus:border-purple-300 focus:ring focus:ring-purple-200 focus:ring-opacity-50 w-4 h-4">
-                                    <span class="ml-2 text-sm font-medium text-gray-900">Active</span>
+                                    <flux:switch
+                                        wire:model="is_active"
+                                        class="mr-2">
+                                    </flux:switch>
+                                    <span class="text-sm font-medium text-gray-900">Active</span>
                                 </label>
                             </div>
 
@@ -832,11 +844,12 @@
                                         @endphp
                                         <label class="flex items-center justify-between cursor-pointer hover:bg-white p-2 rounded">
                                             <div class="flex items-center flex-1 min-w-0">
-                                                <input type="checkbox"
-                                                       wire:model="selectedUsers"
-                                                       value="{{ $user->id }}"
-                                                       class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4 flex-shrink-0">
-                                                <div class="ml-3 flex-1 min-w-0">
+                                                <flux:switch
+                                                    wire:model="selectedUsers"
+                                                    value="{{ $user->id }}"
+                                                    class="mr-3 flex-shrink-0">
+                                                </flux:switch>
+                                                <div class="flex-1 min-w-0">
                                                     <div class="text-sm font-medium text-gray-900 truncate">{{ $user->fullname }}</div>
                                                     <div class="text-xs text-gray-600 truncate">{{ $user->email }}</div>
                                                     @if($user->domain)

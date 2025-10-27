@@ -158,11 +158,12 @@
                                         @endphp
                                         <label class="flex items-center justify-between cursor-pointer hover:bg-white p-2 rounded">
                                             <div class="flex items-center">
-                                                <input type="checkbox"
-                                                       wire:model="selectedOrganizations"
-                                                       value="{{ $org->id }}"
-                                                       class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4">
-                                                <span class="ml-2 text-sm font-medium text-gray-900">{{ $org->name }}</span>
+                                                <flux:switch
+                                                    wire:model="selectedOrganizations"
+                                                    value="{{ $org->id }}"
+                                                    class="mr-2">
+                                                </flux:switch>
+                                                <span class="text-sm font-medium text-gray-900">{{ $org->name }}</span>
                                             </div>
                                             @if($isAutoAssigned)
                                                 <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-900 border border-blue-300">

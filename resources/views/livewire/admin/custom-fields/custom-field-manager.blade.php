@@ -193,17 +193,21 @@
 
                         <div class="mb-4">
                             <label class="flex items-center">
-                                <input wire:model="is_active" type="checkbox"
-                                       class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded">
-                                <span class="ml-2 text-sm text-gray-700">Active</span>
+                                <flux:switch
+                                    wire:model="is_active"
+                                    class="mr-2">
+                                </flux:switch>
+                                <span class="text-sm text-gray-700">Active</span>
                             </label>
                         </div>
 
                         <div class="mb-4">
                             <label class="flex items-center">
-                                <input wire:model="is_user_editable" type="checkbox"
-                                       class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded">
-                                <span class="ml-2 text-sm text-gray-700">User Editable</span>
+                                <flux:switch
+                                    wire:model="is_user_editable"
+                                    class="mr-2">
+                                </flux:switch>
+                                <span class="text-sm text-gray-700">User Editable</span>
                             </label>
                         </div>
                     </div>
@@ -266,17 +270,21 @@
 
                         <div class="mb-4">
                             <label class="flex items-center">
-                                <input wire:model="is_active" type="checkbox"
-                                       class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded">
-                                <span class="ml-2 text-sm text-gray-700">Active</span>
+                                <flux:switch
+                                    wire:model="is_active"
+                                    class="mr-2">
+                                </flux:switch>
+                                <span class="text-sm text-gray-700">Active</span>
                             </label>
                         </div>
 
                         <div class="mb-4">
                             <label class="flex items-center">
-                                <input wire:model="is_user_editable" type="checkbox"
-                                       class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded">
-                                <span class="ml-2 text-sm text-gray-700">User Editable</span>
+                                <flux:switch
+                                    wire:model="is_user_editable"
+                                    class="mr-2">
+                                </flux:switch>
+                                <span class="text-sm text-gray-700">User Editable</span>
                             </label>
                         </div>
                     </div>

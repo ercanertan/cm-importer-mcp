@@ -267,11 +267,12 @@
                                 <div class="space-y-2 max-h-40 overflow-y-auto border-2 border-gray-300 rounded-lg p-3 bg-gray-50">
                                     @foreach($organizations as $org)
                                         <label class="flex items-center cursor-pointer hover:bg-white p-2 rounded">
-                                            <input type="checkbox"
-                                                   wire:model="selectedOrganizations"
-                                                   value="{{ $org->id }}"
-                                                   class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4">
-                                            <span class="ml-2 text-sm font-medium text-gray-900">{{ $org->name }}</span>
+                                            <flux:switch
+                                                wire:model="selectedOrganizations"
+                                                value="{{ $org->id }}"
+                                                class="mr-2">
+                                            </flux:switch>
+                                            <span class="text-sm font-medium text-gray-900">{{ $org->name }}</span>
                                         </label>
                                     @endforeach
                                 </div>
@@ -512,11 +513,12 @@
                                 <div class="space-y-2 max-h-60 overflow-y-auto border-2 border-gray-300 rounded-lg p-3 bg-gray-50">
                                     @foreach($organizations as $org)
                                         <label class="flex items-center cursor-pointer hover:bg-white p-2 rounded">
-                                            <input type="checkbox"
-                                                   wire:model="selectedOrganizations"
-                                                   value="{{ $org->id }}"
-                                                   class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 w-4 h-4">
-                                            <span class="ml-2 text-sm font-medium text-gray-900">{{ $org->name }}</span>
+                                            <flux:switch
+                                                wire:model="selectedOrganizations"
+                                                value="{{ $org->id }}"
+                                                class="mr-2">
+                                            </flux:switch>
+                                            <span class="text-sm font-medium text-gray-900">{{ $org->name }}</span>
                                         </label>
                                     @endforeach
                                 </div>
