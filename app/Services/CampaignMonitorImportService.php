@@ -546,18 +546,18 @@ class CampaignMonitorImportService
     protected function detectDataType($value)
     {
         if (is_numeric($value)) {
-            return 'number';
+            return 'Number';
         }
 
         if (preg_match('/^\d{4}-\d{2}-\d{2}/', $value)) {
-            return 'date';
+            return 'Date';
         }
 
         if (strpos($value, ',') !== false || strpos($value, ';') !== false) {
-            return 'multi_select';
+            return 'MultiSelectOne';
         }
 
-        return 'text';
+        return 'Text';
     }
 
     protected function countCsvRows($filePath)
@@ -1578,7 +1578,7 @@ class CampaignMonitorImportService
                 ['field_key' => $fieldKey],
                 [
                     'field_name' => $fieldName,
-                    'data_type' => 'text',
+                    'data_type' => 'Text',
                     'is_active' => true
                 ]
             );

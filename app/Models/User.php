@@ -194,7 +194,7 @@ class User extends Authenticatable
     {
         $field = CmCustomField::firstOrCreate(
             ['field_key' => $fieldKey],
-            ['field_name' => $fieldKey, 'data_type' => 'text']
+            ['field_name' => $fieldKey, 'data_type' => 'Text']
         );
 
         return $this->customFieldValues()->updateOrCreate(

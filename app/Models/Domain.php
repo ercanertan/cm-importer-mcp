@@ -359,8 +359,12 @@ class Domain extends Model
      * Assign users to a specific organization for this domain (many-to-many)
      * OPTIMIZED: Uses bulk queries instead of loops
      * Respects conditional organization rules
+     *
+     * @param Organization $organization The organization to assign users to
+     * @param bool $syncDomainOrganization Whether to sync the domain-organization relationship (default: true)
+     *                                     Set to false when called from a job that already handled the sync
      */
-    public function assignUsersToOrganization(Organization $organization): int
+    public function assignUsersToOrganization(Organization $organization, bool $syncDomainOrganization = true): int
     {
         // Find or create Default Organization
         $defaultOrganization = Organization::firstOrCreate(
@@ -368,22 +372,26 @@ class Domain extends Model
             ['is_active' => true]
         );
 
-        // Get current organization IDs for this domain
-        $currentOrgIds = $this->organizations()->pluck('organizations.id')->toArray();
+        // Only sync domain-organization relationship if requested
+        // This prevents re-adding domains that were intentionally removed
+        if ($syncDomainOrganization) {
+            // Get current organization IDs for this domain
+            $currentOrgIds = $this->organizations()->pluck('organizations.id')->toArray();
 
-        // If assigning to a non-default organization, remove Default Organization from domain
-        if ($defaultOrganization && $organization->id !== $defaultOrganization->id) {
-            // Remove Default Organization from the list
-            $currentOrgIds = array_diff($currentOrgIds, [$defaultOrganization->id]);
+            // If assigning to a non-default organization, remove Default Organization from domain
+            if ($defaultOrganization && $organization->id !== $defaultOrganization->id) {
+                // Remove Default Organization from the list
+                $currentOrgIds = array_diff($currentOrgIds, [$defaultOrganization->id]);
+            }
+
+            // Add the new organization
+            if (!in_array($organization->id, $currentOrgIds)) {
+                $currentOrgIds[] = $organization->id;
+            }
+
+            // Sync the updated organization list for the domain
+            $this->organizations()->sync($currentOrgIds);
         }
-
-        // Add the new organization
-        if (!in_array($organization->id, $currentOrgIds)) {
-            $currentOrgIds[] = $organization->id;
-        }
-
-        // Sync the updated organization list for the domain
-        $this->organizations()->sync($currentOrgIds);
 
         // BULK UPDATE 1: Set domain_id for all users with this domain email
         $updatedCount = \Illuminate\Support\Facades\DB::table('users')

@@ -93,6 +93,9 @@ class SyncOrganizationDomainsJob implements ShouldQueue
 
             $defaultOrganization = Organization::where('name', 'Default Organization')->first();
 
+            // Get current domains BEFORE sync for logging
+            $domainsBefore = $organization->domains()->pluck('domains.id', 'domains.domain')->toArray();
+
             // STEP 1: Create/find all domains first and collect their IDs
             $domainIds = [];
             foreach ($this->domainNames as $domainName) {
@@ -106,16 +109,61 @@ class SyncOrganizationDomainsJob implements ShouldQueue
                 }
             }
 
+            Log::info('About to sync organization domains', [
+                'sync_log_id' => $syncLog->id,
+                'organization_id' => $organization->id,
+                'organization_name' => $organization->name,
+                'domains_before_sync' => $domainsBefore,
+                'domain_ids_to_sync' => $domainIds,
+                'domain_names_to_sync' => $this->domainNames
+            ]);
+
             // STEP 2: Sync organization to ONLY these domains (removes any not in the list)
             // This is the key fix - it ensures removed domains are detached
             $organization->domains()->sync($domainIds);
 
+            // Reload to verify the sync worked
+            $domainsAfter = $organization->fresh()->domains()->pluck('domains.id', 'domains.domain')->toArray();
+
             Log::info('Organization domains synced', [
                 'sync_log_id' => $syncLog->id,
                 'organization' => $organization->name,
-                'domain_ids' => $domainIds,
+                'domains_before_sync' => $domainsBefore,
+                'domains_after_sync' => $domainsAfter,
+                'domain_ids_synced' => $domainIds,
                 'total_domains' => count($domainIds)
             ]);
+
+            // STEP 2.5: Remove auto-assigned users whose domains are no longer associated with this organization
+            // Get all domain IDs currently associated with this organization (after sync)
+            $currentDomainIds = $organization->domains()->pluck('domains.id')->toArray();
+
+            // Find users auto-assigned to this organization whose domains are NOT in the current list
+            $usersToRemove = \Illuminate\Support\Facades\DB::table('organization_user')
+                ->join('users', 'organization_user.user_id', '=', 'users.id')
+                ->where('organization_user.organization_id', $organization->id)
+                ->where('organization_user.is_manual', false) // Only auto-assigned users
+                ->whereNotNull('users.domain_id')
+                ->whereNotIn('users.domain_id', $currentDomainIds)
+                ->pluck('organization_user.user_id')
+                ->toArray();
+
+            if (!empty($usersToRemove)) {
+                // Remove these users from the organization
+                \Illuminate\Support\Facades\DB::table('organization_user')
+                    ->where('organization_id', $organization->id)
+                    ->whereIn('user_id', $usersToRemove)
+                    ->where('is_manual', false)
+                    ->delete();
+
+                Log::info('Removed auto-assigned users from organization after domain detachment', [
+                    'sync_log_id' => $syncLog->id,
+                    'organization_id' => $organization->id,
+                    'organization_name' => $organization->name,
+                    'users_removed_count' => count($usersToRemove),
+                    'current_domain_ids' => $currentDomainIds
+                ]);
+            }
 
             // STEP 3: Now process each domain for user syncing
             foreach ($this->domainNames as $domainName) {
@@ -154,8 +202,9 @@ class SyncOrganizationDomainsJob implements ShouldQueue
                     // Note: No need to sync domain organizations here - already done in STEP 2!
 
                     // Sync users from domain if enabled
+                    // Pass false to prevent re-syncing domain-organization relationship
                     if ($this->syncUsers) {
-                        $synced = $domain->assignUsersToOrganization($organization);
+                        $synced = $domain->assignUsersToOrganization($organization, false);
                         $totalUsersAssigned += $synced;
                     }
 

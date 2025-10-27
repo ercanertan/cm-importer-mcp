@@ -538,13 +538,20 @@ class OrganizationManager extends Component
                     // User cleared all domains - detach all domains from this organization
                     $organization->domains()->detach();
 
+                    // Remove all auto-assigned users (is_manual = false) from this organization
+                    $usersRemoved = \Illuminate\Support\Facades\DB::table('organization_user')
+                        ->where('organization_id', $organization->id)
+                        ->where('is_manual', false)
+                        ->delete();
+
                     \Illuminate\Support\Facades\Log::info('All domains removed from organization', [
                         'organization_id' => $organization->id,
                         'organization_name' => $organization->name,
-                        'removed_count' => count($currentDomains)
+                        'removed_domain_count' => count($currentDomains),
+                        'removed_user_count' => $usersRemoved
                     ]);
 
-                    session()->flash('message', 'Organization updated successfully. All domains removed.');
+                    session()->flash('message', 'Organization updated successfully. All domains and auto-assigned users removed.');
                 }
             } else {
                 session()->flash('message', 'Organization updated successfully.');

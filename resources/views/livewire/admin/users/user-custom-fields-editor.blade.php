@@ -50,7 +50,7 @@
                                             @endif
                                         </label>
 
-                                        @if($field['data_type'] === 'text')
+                                        @if($field['data_type'] === 'Text')
                                             <input
                                                 wire:model="fieldValues.{{ $field['id'] }}"
                                                 type="text"
@@ -58,7 +58,7 @@
                                                 class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md text-gray-700"
                                                 placeholder="Enter {{ strtolower($field['field_name']) }}">
 
-                                        @elseif($field['data_type'] === 'number')
+                                        @elseif($field['data_type'] === 'Number')
                                             <input
                                                 wire:model="fieldValues.{{ $field['id'] }}"
                                                 type="number"
@@ -66,7 +66,7 @@
                                                 class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md text-gray-700"
                                                 placeholder="Enter {{ strtolower($field['field_name']) }}">
 
-                                        @elseif($field['data_type'] === 'date')
+                                        @elseif($field['data_type'] === 'Date')
                                             <input
                                                 wire:model="fieldValues.{{ $field['id'] }}"
                                                 type="date"
