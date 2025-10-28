@@ -10,53 +10,7 @@ use Illuminate\Support\Facades\Validator;
 class CustomFieldImportService
 {
     /**
-     * Parse and validate JSON data with strict format requirements
-     * Handles both manual format (direct array) and API format (with response wrapper)
-     */
-    public function parseJsonData(string $jsonString): array
-    {
-        $data = json_decode($jsonString, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new \InvalidArgumentException('Invalid JSON format: ' . json_last_error_msg());
-        }
-
-        if (!is_array($data)) {
-            throw new \InvalidArgumentException('JSON must be an array or object');
-        }
-
-        if (empty($data)) {
-            throw new \InvalidArgumentException('JSON must be a non-empty array of field objects');
-        }
-
-        // Handle API response format with wrapper
-        if (isset($data['response']) && isset($data['http_status_code'])) {
-            if ($data['http_status_code'] !== 200) {
-                throw new \InvalidArgumentException('API returned non-200 status code: ' . $data['http_status_code']);
-            }
-
-            $fields = $data['response'];
-        } else {
-            // Handle direct array format (manual copy/paste)
-            $fields = $data;
-        }
-
-        if (!is_array($fields) || empty($fields)) {
-            throw new \InvalidArgumentException('JSON must contain a non-empty array of field objects');
-        }
-
-        // Basic structural validation - detailed validation happens in generatePreview
-        foreach ($fields as $index => $field) {
-            if (!is_array($field)) {
-                throw new \InvalidArgumentException("Item at index {$index} must be an object");
-            }
-        }
-
-        return $fields;
-    }
-
-    /**
-     * Process fields and generate preview comparison
+     * Process fields and generate preview comparison from Campaign Monitor API
      */
     public function generatePreview(array $externalFields): array
     {
@@ -278,9 +232,9 @@ class CustomFieldImportService
     }
 
     /**
-     * Validate a single field - throws exception for invalid fields
+     * Validate a single field - throws exception for invalid fields (used in generatePreview)
      */
-    protected function validateField(array $field, int $index): void
+    public function validateField(array $field, int $index): void
     {
         $validator = Validator::make($field, [
             'FieldName' => 'required|string|max:255',
@@ -303,68 +257,5 @@ class CustomFieldImportService
         if (in_array($field['DataType'], ['MultiSelectOne', 'MultiSelectMany']) && empty($field['FieldOptions'])) {
             throw new \InvalidArgumentException("Field '{$field['FieldName']}' with DataType '{$field['DataType']}' must have non-empty FieldOptions");
         }
-    }
-
-    /**
-     * Get validation rules for JSON fields
-     */
-    public function getValidationRules(): array
-    {
-        return [
-            'FieldName' => 'required|string|max:255',
-            'Key' => 'required|string|max:255|regex:/^\[.*\]$/',
-            'DataType' => 'required|string|in:' . implode(',', array_map(fn($type) => $type->value, CustomFieldTypes::cases())),
-            'FieldOptions' => 'present|array',
-            'VisibleInPreferenceCenter' => 'required|boolean',
-        ];
-    }
-
-    /**
-     * Get example JSON format for users
-     */
-    public function getExampleFormat(): string
-    {
-        return json_encode([
-            [
-                'FieldName' => 'Job Title',
-                'Key' => '[JobTitle]',
-                'DataType' => 'Text',
-                'FieldOptions' => [],
-                'VisibleInPreferenceCenter' => true,
-            ],
-            [
-                'FieldName' => 'Department',
-                'Key' => '[Department]',
-                'DataType' => 'MultiSelectOne',
-                'FieldOptions' => ['Engineering', 'Sales', 'Marketing', 'HR'],
-                'VisibleInPreferenceCenter' => false,
-            ],
-        ], JSON_PRETTY_PRINT);
-    }
-
-    /**
-     * Get example API JSON format for users
-     */
-    public function getApiExampleFormat(): string
-    {
-        return json_encode([
-            'response' => [
-                [
-                    'FieldName' => 'Job Title',
-                    'Key' => '[JobTitle]',
-                    'DataType' => 'Text',
-                    'FieldOptions' => [],
-                    'VisibleInPreferenceCenter' => true,
-                ],
-                [
-                    'FieldName' => 'Department',
-                    'Key' => '[Department]',
-                    'DataType' => 'MultiSelectOne',
-                    'FieldOptions' => ['Engineering', 'Sales', 'Marketing', 'HR'],
-                    'VisibleInPreferenceCenter' => false,
-                ],
-            ],
-            'http_status_code' => 200
-        ], JSON_PRETTY_PRINT);
     }
 }

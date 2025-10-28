@@ -18,8 +18,6 @@ class CustomFieldManager extends Component
     public $showCreateModal = false;
     public $showEditModal = false;
     public $showDeleteModal = false;
-    public $showJsonModal = false;
-    public $showPreviewModal = false;
     public $showCampaignMonitorModal = false;
 
     #[\Livewire\Attributes\Locked]
@@ -28,14 +26,10 @@ class CustomFieldManager extends Component
     #[\Livewire\Attributes\Locked]
     public $customFieldToDeleteId = null;
 
-    // JSON Import properties
-    public $jsonInput = '';
-    public $parsedFields = [];
+    // Campaign Monitor properties
     public $previewData = [];
     public $selectedPreviewIndices = [];
     public $importErrors = [];
-
-    // Campaign Monitor properties
     public $cmConnectionStatus = [];
     public $isFetchingFromCm = false;
     public $cmFetchStatus = 'idle'; // idle, checking, fetching, success, error
@@ -244,98 +238,13 @@ class CustomFieldManager extends Component
         return array_filter($options);
     }
 
-    // JSON Import Methods
-    public function openJsonModal()
-    {
-        $this->showJsonModal = true;
-        $this->jsonInput = '';
-        $this->importErrors = [];
-        $this->resetValidation('jsonInput');
-    }
-
-    public function closeJsonModal()
-    {
-        $this->showJsonModal = false;
-        $this->jsonInput = '';
-        $this->importErrors = [];
-        $this->resetValidation('jsonInput');
-    }
-
-    public function processJsonInput()
-    {
-        $this->validate([
-            'jsonInput' => 'required|string|min:1',
-        ]);
-
-        $this->importErrors = [];
-
-        try {
-            $importService = new CustomFieldImportService();
-            $this->parsedFields = $importService->parseJsonData($this->jsonInput);
-            $this->previewData = $importService->generatePreview($this->parsedFields);
-
-            // Auto-select all new and updated fields
-            $this->selectedPreviewIndices = [
-                ...array_column($this->previewData['new'], 'index'),
-                ...array_column($this->previewData['updated'], 'index'),
-            ];
-
-            $this->cmShowPreview = true;
-
-            $message = "Processed {$this->previewData['statistics']['total']} fields: ";
-            $message .= "{$this->previewData['statistics']['new']} new, ";
-            $message .= "{$this->previewData['statistics']['updated']} to update, ";
-            $message .= "{$this->previewData['statistics']['duplicates']} duplicates, ";
-            $message .= "{$this->previewData['statistics']['invalid']} invalid.";
-
-            session()->flash('message', $message);
-
-        } catch (\Exception $e) {
-            $this->importErrors[] = $e->getMessage();
-            $this->cmShowPreview = true; // Show preview even with errors
-            session()->flash('error', $e->getMessage());
-        }
-    }
-
+    // Preview Methods
     public function closePreviewModal()
     {
         $this->cmShowPreview = false;
         $this->previewData = [];
         $this->selectedPreviewIndices = [];
         $this->importErrors = [];
-    }
-
-    public function applyJsonChanges()
-    {
-        if (empty($this->selectedPreviewIndices)) {
-            session()->flash('error', 'Please select at least one field to import.');
-            return;
-        }
-
-        try {
-            $importService = new CustomFieldImportService();
-            $results = $importService->applyChanges($this->previewData, $this->selectedPreviewIndices);
-
-            $message = "Import completed: ";
-            $message .= "{$results['created']} created, ";
-            $message .= "{$results['updated']} updated, ";
-            $message .= "{$results['skipped']} skipped.";
-
-            if (!empty($results['errors'])) {
-                $message .= " " . count($results['errors']) . " errors occurred.";
-                Log::error('JSON import errors', $results['errors']);
-            }
-
-            session()->flash('message', $message);
-            $this->closePreviewModal();
-
-        } catch (\Exception $e) {
-            session()->flash('error', 'Failed to apply changes: ' . $e->getMessage());
-            Log::error('JSON import failed', [
-                'error' => $e->getMessage(),
-                'selected_indices' => $this->selectedPreviewIndices,
-            ]);
-        }
     }
 
     public function togglePreviewSelection($index)
@@ -358,20 +267,6 @@ class CustomFieldManager extends Component
     public function clearSelection()
     {
         $this->selectedPreviewIndices = [];
-    }
-
-    #[\Livewire\Attributes\Locked]
-    public function getExampleJson()
-    {
-        $importService = new CustomFieldImportService();
-        return $importService->getExampleFormat();
-    }
-
-    #[\Livewire\Attributes\Locked]
-    public function getApiExampleJson()
-    {
-        $importService = new CustomFieldImportService();
-        return $importService->getApiExampleFormat();
     }
 
     // Campaign Monitor Methods
@@ -414,7 +309,6 @@ class CustomFieldManager extends Component
         $this->cmFetchMessage = '';
         $this->cmFetchedFields = [];
         $this->cmShowPreview = false;
-        $this->jsonInput = '';
         $this->importErrors = [];
     }
 
