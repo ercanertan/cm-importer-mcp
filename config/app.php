@@ -123,4 +123,10 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'campign_monitor' =>[
+        'cm_api_key' => env('CM_API_KEY', ''),
+        'client_id' => env('CREATESEND_CLIENT_ID', ''),
+        'redirect_url' => env('CREATESEND_REDIRECT_URI', '')
+    ]
+
 ];

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "63a30bc87eb7694c4ece1ac279c67fc4",
+    "content-hash": "609d5db386a12dfebafde5b215e42339",
     "packages": [
         {
             "name": "bacon/bacon-qr-code",
@@ -119,6 +119,70 @@
                 }
             ],
             "time": "2025-08-29T12:40:03+00:00"
+        },
+        {
+            "name": "campaignmonitor/createsend-php",
+            "version": "v7.1.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/campaignmonitor/createsend-php.git",
+                "reference": "84e87246b855bd262bb51a0bbf76ede5e2066f3e"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/campaignmonitor/createsend-php/zipball/84e87246b855bd262bb51a0bbf76ede5e2066f3e",
+                "reference": "84e87246b855bd262bb51a0bbf76ede5e2066f3e",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=5.3.0"
+            },
+            "require-dev": {
+                "simpletest/simpletest": "1.2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "classmap": [
+                    "csrest_administrators.php",
+                    "csrest_campaigns.php",
+                    "csrest_clients.php",
+                    "csrest_general.php",
+                    "csrest_events.php",
+                    "csrest_lists.php",
+                    "csrest_people.php",
+                    "csrest_segments.php",
+                    "csrest_subscribers.php",
+                    "csrest_templates.php",
+                    "csrest_transactional_classicemail.php",
+                    "csrest_transactional_smartemail.php",
+                    "csrest_transactional_timeline.php",
+                    "csrest_journeys.php",
+                    "csrest_journey_emails.php"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Toby Brain",
+                    "email": "tobio85@gmail.com",
+                    "role": "Developer"
+                }
+            ],
+            "description": "A php library which implements the complete functionality of the Campaign Monitor API.",
+            "homepage": "http://campaignmonitor.github.io/createsend-php/",
+            "keywords": [
+                "api",
+                "campaign",
+                "monitor"
+            ],
+            "support": {
+                "issues": "https://github.com/campaignmonitor/createsend-php/issues",
+                "source": "https://github.com/campaignmonitor/createsend-php/tree/v7.1.1"
+            },
+            "time": "2025-06-18T03:28:38+00:00"
         },
         {
             "name": "carbonphp/carbon-doctrine-types",
