@@ -289,6 +289,18 @@ class Domain extends Model
             return;
         }
 
+        // Quick check: Do we have ANY conditional organizations for this domain?
+        // This avoids expensive queries when there are none
+        $hasConditionalOrgs = Organization::whereNotNull('conditional_rules')
+            ->whereHas('domains', function($query) {
+                $query->where('domain_id', $this->id);
+            })
+            ->exists();
+
+        if (!$hasConditionalOrgs) {
+            return; // No conditional orgs to evaluate - skip expensive operations
+        }
+
         // Get ALL conditional organizations that have this domain associated
         // but weren't processed in the initial sync
         $allConditionalOrgs = Organization::whereNotNull('conditional_rules')

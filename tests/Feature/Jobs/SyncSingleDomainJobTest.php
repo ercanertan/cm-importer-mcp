@@ -117,12 +117,23 @@ describe('SyncSingleDomainJob', function () {
     it('uses bulk operations for performance', function () {
         $syncLog = SyncLog::factory()->create();
 
-        // Create users with guaranteed unique emails
+        // Create users with guaranteed unique emails using raw inserts for speed
+        $users = [];
+        $now = now();
+        $password = bcrypt('password');
+
         for ($i = 0; $i < 1000; $i++) {
-            User::factory()->create([
+            $users[] = [
+                'fullname' => "User $i",
                 'email' => "user{$i}@example.com",
-            ]);
+                'email_verified_at' => $now,
+                'password' => $password,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
         }
+
+        \Illuminate\Support\Facades\DB::table('users')->insert($users);
 
         $startTime = microtime(true);
         $job = new SyncSingleDomainJob($syncLog->id, $this->domain->id);
@@ -131,7 +142,7 @@ describe('SyncSingleDomainJob', function () {
 
         // Should complete in less than 5 seconds for 1000 users
         expect($endTime - $startTime)->toBeLessThan(5.0);
-    });
+    })->group('slow');
 
     it('has 1 hour timeout', function () {
         $job = new SyncSingleDomainJob(1, 1);
