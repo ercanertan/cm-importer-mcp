@@ -20,6 +20,7 @@ class CustomFieldManager extends Component
     public $showDeleteModal = false;
     public $showJsonModal = false;
     public $showPreviewModal = false;
+    public $showCampaignMonitorModal = false;
 
     #[\Livewire\Attributes\Locked]
     public $customFieldToEditId = null;
@@ -37,6 +38,10 @@ class CustomFieldManager extends Component
     // Campaign Monitor properties
     public $cmConnectionStatus = [];
     public $isFetchingFromCm = false;
+    public $cmFetchStatus = 'idle'; // idle, checking, fetching, success, error
+    public $cmFetchMessage = '';
+    public $cmFetchedFields = [];
+    public $cmShowPreview = false;
 
     // Form fields
     public $field_key = '';
@@ -275,8 +280,7 @@ class CustomFieldManager extends Component
                 ...array_column($this->previewData['updated'], 'index'),
             ];
 
-            $this->showJsonModal = false;
-            $this->showPreviewModal = true;
+            $this->cmShowPreview = true;
 
             $message = "Processed {$this->previewData['statistics']['total']} fields: ";
             $message .= "{$this->previewData['statistics']['new']} new, ";
@@ -288,13 +292,14 @@ class CustomFieldManager extends Component
 
         } catch (\Exception $e) {
             $this->importErrors[] = $e->getMessage();
+            $this->cmShowPreview = true; // Show preview even with errors
             session()->flash('error', $e->getMessage());
         }
     }
 
     public function closePreviewModal()
     {
-        $this->showPreviewModal = false;
+        $this->cmShowPreview = false;
         $this->previewData = [];
         $this->selectedPreviewIndices = [];
         $this->importErrors = [];
@@ -355,10 +360,18 @@ class CustomFieldManager extends Component
         $this->selectedPreviewIndices = [];
     }
 
+    #[\Livewire\Attributes\Locked]
     public function getExampleJson()
     {
         $importService = new CustomFieldImportService();
         return $importService->getExampleFormat();
+    }
+
+    #[\Livewire\Attributes\Locked]
+    public function getApiExampleJson()
+    {
+        $importService = new CustomFieldImportService();
+        return $importService->getApiExampleFormat();
     }
 
     // Campaign Monitor Methods
@@ -382,25 +395,69 @@ class CustomFieldManager extends Component
         }
     }
 
+    public function openCampaignMonitorModal()
+    {
+        $this->showCampaignMonitorModal = true;
+        $this->cmFetchStatus = 'idle';
+        $this->cmFetchMessage = '';
+        $this->cmFetchedFields = [];
+        $this->cmShowPreview = false;
+
+        // Check connection status when opening modal
+        $this->checkCampaignMonitorConnection();
+    }
+
+    public function closeCampaignMonitorModal()
+    {
+        $this->showCampaignMonitorModal = false;
+        $this->cmFetchStatus = 'idle';
+        $this->cmFetchMessage = '';
+        $this->cmFetchedFields = [];
+        $this->cmShowPreview = false;
+        $this->jsonInput = '';
+        $this->importErrors = [];
+    }
+
     public function fetchFromCampaignMonitor()
     {
+        $this->cmFetchStatus = 'checking';
+        $this->cmFetchMessage = 'Checking Campaign Monitor connection...';
         $this->isFetchingFromCm = true;
 
         try {
-            $cmService = new CampaignMonitorService();
-            $jsonData = $cmService->getCustomFieldsForImport();
-
-            // Set the JSON input and process it
-            $this->jsonInput = $jsonData;
-            $this->processJsonInput();
-
-            // Update connection status
+            // Re-check connection
             $this->checkCampaignMonitorConnection();
 
-            session()->flash('message', 'Successfully fetched custom fields from Campaign Monitor!');
+            if (!$this->cmConnectionStatus['connected']) {
+                $this->cmFetchStatus = 'error';
+                $this->cmFetchMessage = $this->cmConnectionStatus['error'] ?? 'Connection failed';
+                return;
+            }
+
+            $this->cmFetchStatus = 'fetching';
+            $this->cmFetchMessage = 'Fetching custom fields from Campaign Monitor...';
+
+            $cmService = new CampaignMonitorService();
+            $fields = $cmService->fetchCustomFields();
+
+            if (empty($fields)) {
+                $this->cmFetchStatus = 'error';
+                $this->cmFetchMessage = 'No custom fields found in the Campaign Monitor list';
+                return;
+            }
+
+            // Generate preview
+            $importService = new CustomFieldImportService();
+            $previewData = $importService->generatePreview($fields);
+
+            $this->cmFetchedFields = $fields;
+            $this->previewData = $previewData;
+            $this->cmFetchStatus = 'success';
+            $this->cmFetchMessage = "Successfully fetched {$previewData['statistics']['total']} custom fields!";
 
         } catch (\Exception $e) {
-            session()->flash('error', 'Failed to fetch custom fields from Campaign Monitor: ' . $e->getMessage());
+            $this->cmFetchStatus = 'error';
+            $this->cmFetchMessage = 'Failed to fetch custom fields: ' . $e->getMessage();
             Log::error('Campaign Monitor fetch failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
@@ -410,18 +467,53 @@ class CustomFieldManager extends Component
         }
     }
 
-    public function openCampaignMonitorModal()
+    public function showCampaignMonitorPreview()
     {
-        // Refresh connection status before opening modal
-        $this->checkCampaignMonitorConnection();
+        if (!empty($this->cmFetchedFields)) {
+            // Use existing preview data
+            $importService = new CustomFieldImportService();
+            $this->previewData = $importService->generatePreview($this->cmFetchedFields);
 
-        // If connected, automatically fetch fields
-        if ($this->cmConnectionStatus['connected']) {
-            $this->fetchFromCampaignMonitor();
-        } else {
-            // Show error about connection
-            $error = $this->cmConnectionStatus['error'] ?? 'Unknown error';
-            session()->flash('error', "Cannot connect to Campaign Monitor: {$error}");
+            // Auto-select all new and updated fields
+            $this->selectedPreviewIndices = [
+                ...array_column($this->previewData['new'], 'index'),
+                ...array_column($this->previewData['updated'], 'index'),
+            ];
+
+            $this->cmShowPreview = true;
+        }
+    }
+
+    public function applyCampaignMonitorChanges()
+    {
+        if (empty($this->selectedPreviewIndices)) {
+            session()->flash('error', 'Please select at least one field to import.');
+            return;
+        }
+
+        try {
+            $importService = new CustomFieldImportService();
+            $results = $importService->applyChanges($this->previewData, $this->selectedPreviewIndices);
+
+            $message = "Campaign Monitor import completed: ";
+            $message .= "{$results['created']} created, ";
+            $message .= "{$results['updated']} updated, ";
+            $message .= "{$results['skipped']} skipped.";
+
+            if (!empty($results['errors'])) {
+                $message .= " " . count($results['errors']) . " errors occurred.";
+                Log::error('Campaign Monitor import errors', $results['errors']);
+            }
+
+            session()->flash('message', $message);
+            $this->closeCampaignMonitorModal();
+
+        } catch (\Exception $e) {
+            session()->flash('error', 'Failed to apply Campaign Monitor changes: ' . $e->getMessage());
+            Log::error('Campaign Monitor import failed', [
+                'error' => $e->getMessage(),
+                'selected_indices' => $this->selectedPreviewIndices,
+            ]);
         }
     }
 }

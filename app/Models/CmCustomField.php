@@ -17,6 +17,7 @@ class CmCustomField extends Model
         'is_active',
         'is_user_editable',
         'last_seen_at',
+        'external_key',
     ];
 
     protected $casts = [

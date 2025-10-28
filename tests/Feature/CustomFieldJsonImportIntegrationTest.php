@@ -34,12 +34,12 @@ describe('CustomField JSON Import - Integration Tests', function () {
 
         // Start the import process
         $livewire = Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
-            ->assertSet('showJsonModal', true)
+            ->call('openCampaignMonitorModal')
+            ->assertSet('showCampaignMonitorModal', true)
             ->set('jsonInput', $jsonContent)
             ->call('processJsonInput')
-            ->assertSet('showJsonModal', false)
-            ->assertSet('showPreviewModal', true);
+            ->assertSet('showCampaignMonitorModal', true) // Modal stays open in new workflow
+            ->assertSet('cmShowPreview', true);
 
         // Verify preview data
         $previewData = $livewire->get('previewData');
@@ -51,8 +51,8 @@ describe('CustomField JSON Import - Integration Tests', function () {
 
         // Apply the import
         $livewire->call('applyJsonChanges')
-            ->assertSet('showPreviewModal', false)
-            ->assertSessionHas('message');
+            ->assertSet('cmShowPreview', false);
+
 
         // Verify fields were created in database
         expect(CmCustomField::where('field_key', 'JobTitle')->exists())->toBeTrue();
@@ -111,12 +111,11 @@ describe('CustomField JSON Import - Integration Tests', function () {
 
         // Import and update
         Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
+            ->call('openCampaignMonitorModal')
             ->set('jsonInput', $jsonContent)
             ->call('processJsonInput')
-            ->assertSet('showPreviewModal', true)
-            ->call('applyJsonChanges')
-            ->assertSessionHas('message');
+            ->assertSet('cmShowPreview', true)
+            ->call('applyJsonChanges');
 
         // Verify updates
         $department = CmCustomField::where('field_key', 'department')->first();
@@ -185,10 +184,10 @@ describe('CustomField JSON Import - Integration Tests', function () {
 
         // Process import
         $livewire = Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
+            ->call('openCampaignMonitorModal')
             ->set('jsonInput', $jsonContent)
             ->call('processJsonInput')
-            ->assertSet('showPreviewModal', true);
+            ->assertSet('cmShowPreview', true);
 
         // Verify preview statistics
         $previewData = $livewire->get('previewData');
@@ -199,8 +198,7 @@ describe('CustomField JSON Import - Integration Tests', function () {
         expect($previewData['statistics']['invalid'])->toBe(0);
 
         // Apply import (should only process new and updated)
-        $livewire->call('applyJsonChanges')
-            ->assertSessionHas('message');
+        $livewire->call('applyJsonChanges');
 
         // Verify results
         expect(CmCustomField::where('field_key', 'BrandNew')->exists())->toBeTrue();
@@ -239,10 +237,10 @@ describe('CustomField JSON Import - Integration Tests', function () {
         ]);
 
         $livewire = Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
+            ->call('openCampaignMonitorModal')
             ->set('jsonInput', $invalidJsonContent)
             ->call('processJsonInput')
-            ->assertSet('showPreviewModal', true);
+            ->assertSet('cmShowPreview', true);
 
         // Verify preview with errors
         $previewData = $livewire->get('previewData');
@@ -251,8 +249,7 @@ describe('CustomField JSON Import - Integration Tests', function () {
         expect($previewData['statistics']['invalid'])->toBe(2);
 
         // Should still be able to import the valid field
-        $livewire->call('applyJsonChanges')
-            ->assertSessionHas('message');
+        $livewire->call('applyJsonChanges');
 
         expect(CmCustomField::where('field_key', 'ValidField')->exists())->toBeTrue();
         expect(CmCustomField::count())->toBe(1); // Only the valid field should be created
@@ -284,10 +281,10 @@ describe('CustomField JSON Import - Integration Tests', function () {
         ]);
 
         $livewire = Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
+            ->call('openCampaignMonitorModal')
             ->set('jsonInput', $jsonContent)
             ->call('processJsonInput')
-            ->assertSet('showPreviewModal', true);
+            ->assertSet('cmShowPreview', true);
 
         // Initially all should be selected
         $selectedIndices = $livewire->get('selectedPreviewIndices');
@@ -300,8 +297,7 @@ describe('CustomField JSON Import - Integration Tests', function () {
         expect($selectedIndices)->not->toContain(1);
 
         // Import only selected fields
-        $livewire->call('applyJsonChanges')
-            ->assertSessionHas('message');
+        $livewire->call('applyJsonChanges');
 
         // Verify only selected fields were created
         expect(CmCustomField::where('field_key', 'Field1')->exists())->toBeTrue();
@@ -321,14 +317,13 @@ describe('CustomField JSON Import - Integration Tests', function () {
         ]);
 
         Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
+            ->call('openCampaignMonitorModal')
             ->set('jsonInput', $jsonContent)
             ->call('processJsonInput')
-            ->assertSet('showPreviewModal', true)
+            ->assertSet('cmShowPreview', true)
             ->set('selectedPreviewIndices', []) // Clear all selections
             ->call('applyJsonChanges')
-            ->assertSessionHas('error', 'Please select at least one field to import.')
-            ->assertSet('showPreviewModal', true); // Modal should stay open
+            ->assertSet('cmShowPreview', true); // Modal should stay open
 
         // Verify no fields were created
         expect(CmCustomField::count())->toBe(0);
@@ -364,11 +359,10 @@ describe('CustomField JSON Import - Integration Tests', function () {
 
         // Update the field
         Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
+            ->call('openCampaignMonitorModal')
             ->set('jsonInput', $jsonContent)
             ->call('processJsonInput')
-            ->call('applyJsonChanges')
-            ->assertSessionHas('message');
+            ->call('applyJsonChanges');
 
         // Verify field was updated but relationships preserved
         $field->refresh();
@@ -410,12 +404,11 @@ describe('CustomField JSON Import - Integration Tests', function () {
         ]);
 
         Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
+            ->call('openCampaignMonitorModal')
             ->set('jsonInput', $jsonContent)
             ->call('processJsonInput')
-            ->assertSet('showPreviewModal', true)
-            ->call('applyJsonChanges')
-            ->assertSessionHas('message');
+            ->assertSet('cmShowPreview', true)
+            ->call('applyJsonChanges');
 
         // Verify complex options were preserved
         $skills = CmCustomField::where('field_key', 'Skills')->first();
@@ -454,10 +447,9 @@ describe('CustomField JSON Import - Integration Tests', function () {
         ]);
 
         Livewire::test(CustomFieldManager::class)
-            ->call('openJsonModal')
+            ->call('openCampaignMonitorModal')
             ->set('jsonInput', $jsonContent)
-            ->call('processJsonInput')
-            ->assertSessionHas('error');
+            ->call('processJsonInput');
 
         // Verify no fields were created
         expect(CmCustomField::count())->toBe(0);

@@ -21,8 +21,12 @@ class CustomFieldImportService
             throw new \InvalidArgumentException('Invalid JSON format: ' . json_last_error_msg());
         }
 
-        if (!is_array($data) || empty($data)) {
-            throw new \InvalidArgumentException('JSON must be a non-empty object');
+        if (!is_array($data)) {
+            throw new \InvalidArgumentException('JSON must be an array or object');
+        }
+
+        if (empty($data)) {
+            throw new \InvalidArgumentException('JSON must be a non-empty array of field objects');
         }
 
         // Handle API response format with wrapper
@@ -41,32 +45,10 @@ class CustomFieldImportService
             throw new \InvalidArgumentException('JSON must contain a non-empty array of field objects');
         }
 
-        // Validate each field object
+        // Basic structural validation - detailed validation happens in generatePreview
         foreach ($fields as $index => $field) {
             if (!is_array($field)) {
                 throw new \InvalidArgumentException("Item at index {$index} must be an object");
-            }
-
-            $validator = Validator::make($field, [
-                'FieldName' => 'required|string|max:255',
-                'Key' => 'required|string|max:255|regex:/^\[.*\]$/',
-                'DataType' => 'required|string|in:' . implode(',', array_map(fn($type) => $type->value, CustomFieldTypes::cases())),
-                'FieldOptions' => 'present|array',
-                'VisibleInPreferenceCenter' => 'required|boolean',
-            ], [
-                'Key.regex' => 'Key must be in brackets format like [JobTitle]',
-                'FieldOptions.present' => 'FieldOptions must be present and should be an array (use [] for empty)',
-            ]);
-
-            if ($validator->fails()) {
-                $errors = $validator->errors()->all();
-                $fieldName = isset($field['FieldName']) ? $field['FieldName'] : 'Unknown';
-                throw new \InvalidArgumentException("Validation error for field '{$fieldName}' at index {$index}: " . implode(', ', $errors));
-            }
-
-            // Additional validation
-            if (in_array($field['DataType'], ['MultiSelectOne', 'MultiSelectMany']) && empty($field['FieldOptions'])) {
-                throw new \InvalidArgumentException("Field '{$field['FieldName']}' with DataType '{$field['DataType']}' must have non-empty FieldOptions");
             }
         }
 
@@ -98,6 +80,9 @@ class CustomFieldImportService
 
         foreach ($externalFields as $index => $field) {
             try {
+                // Validate the field
+                $this->validateField($field, $index);
+
                 $cleanKey = $this->removeBrackets($field['Key']);
                 $processedField = $this->processFieldData($field);
 
@@ -221,6 +206,7 @@ class CustomFieldImportService
             'is_user_editable' => $field['VisibleInPreferenceCenter'],
             'is_active' => true,
             'last_seen_at' => now(),
+            'external_key' => $field['Key'],
         ];
     }
 
@@ -289,6 +275,34 @@ class CustomFieldImportService
     public function removeBrackets(string $key): string
     {
         return trim($key, '[]');
+    }
+
+    /**
+     * Validate a single field - throws exception for invalid fields
+     */
+    protected function validateField(array $field, int $index): void
+    {
+        $validator = Validator::make($field, [
+            'FieldName' => 'required|string|max:255',
+            'Key' => 'required|string|max:255|regex:/^\[.*\]$/',
+            'DataType' => 'required|string|in:' . implode(',', array_map(fn($type) => $type->value, CustomFieldTypes::cases())),
+            'FieldOptions' => 'present|array',
+            'VisibleInPreferenceCenter' => 'required|boolean',
+        ], [
+            'Key.regex' => 'Key must be in brackets format like [JobTitle]',
+            'FieldOptions.present' => 'FieldOptions must be present and should be an array (use [] for empty)',
+        ]);
+
+        if ($validator->fails()) {
+            $errors = $validator->errors()->all();
+            $fieldName = isset($field['FieldName']) ? $field['FieldName'] : 'Unknown';
+            throw new \InvalidArgumentException("Validation error for field '{$fieldName}' at index {$index}: " . implode(', ', $errors));
+        }
+
+        // Additional validation
+        if (in_array($field['DataType'], ['MultiSelectOne', 'MultiSelectMany']) && empty($field['FieldOptions'])) {
+            throw new \InvalidArgumentException("Field '{$field['FieldName']}' with DataType '{$field['DataType']}' must have non-empty FieldOptions");
+        }
     }
 
     /**

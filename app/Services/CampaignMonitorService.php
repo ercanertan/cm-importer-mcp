@@ -6,36 +6,33 @@ use Illuminate\Support\Facades\Log;
 use Exception;
 
 // Include Campaign Monitor SDK files
-if (file_exists(base_path('vendor/campaignmonitor/createsend-php/csrest_clients.php'))) {
-    require_once base_path('vendor/campaignmonitor/createsend-php/csrest_clients.php');
-}
 if (file_exists(base_path('vendor/campaignmonitor/createsend-php/csrest_lists.php'))) {
     require_once base_path('vendor/campaignmonitor/createsend-php/csrest_lists.php');
 }
 
 class CampaignMonitorService
 {
-    private $client;
+    private $listClient;
     private ?string $apiKey;
-    private ?string $clientId;
+    private ?string $listId;
     private bool $isAvailable;
 
     public function __construct()
     {
         $this->apiKey = config('app.campign_monitor.cm_api_key');
-        $this->clientId = config('app.campign_monitor.client_id');
+        $this->listId = config('app.campign_monitor.list_id');
 
         // Check if Campaign Monitor SDK is available
-        $this->isAvailable = class_exists('CS_REST_Clients') && class_exists('CS_REST_Lists');
+        $this->isAvailable = class_exists('CS_REST_Lists');
 
         if (!$this->isAvailable) {
             Log::warning('Campaign Monitor SDK not found - functionality disabled');
             return;
         }
 
-        // Only create client if API key is available
-        if ($this->apiKey) {
-            $this->client = new \CS_REST_Clients($this->clientId, ['api_key' => $this->apiKey]);
+        // Only create list client if API key and list ID are available
+        if ($this->apiKey && $this->listId) {
+            $this->listClient = new \CS_REST_Lists($this->listId, ['api_key' => $this->apiKey]);
         }
     }
 
@@ -53,67 +50,34 @@ class CampaignMonitorService
                 throw new Exception('Campaign Monitor API key is not configured');
             }
 
-            if (!$this->clientId) {
-                throw new Exception('Campaign Monitor Client ID is not configured');
+            if (!$this->listId) {
+                throw new Exception('Campaign Monitor List ID is not configured');
             }
 
-            // Get all lists for the client first
-            $listsResult = $this->client->get_lists();
+            // Get custom fields directly from the configured list
+            $customFieldsResult = $this->listClient->get_custom_fields();
 
-            if (!$listsResult->was_successful()) {
-                $error = is_string($listsResult->response) ? $listsResult->response : json_encode($listsResult->response);
-                throw new Exception('Unable to retrieve lists from Campaign Monitor API: ' . ($error ?? 'Unknown error'));
+            if (!$customFieldsResult->was_successful()) {
+                $error = $this->formatApiError($customFieldsResult);
+                throw new Exception('Unable to retrieve custom fields from Campaign Monitor list: ' . $error);
             }
 
-            if (!isset($listsResult->response) || !is_array($listsResult->response)) {
-                throw new Exception('Invalid lists response format from Campaign Monitor API');
+            if (!isset($customFieldsResult->response) || !is_array($customFieldsResult->response)) {
+                throw new Exception('Invalid custom fields response format from Campaign Monitor API');
             }
 
-            $allCustomFields = [];
-            $processedKeys = []; // Track to avoid duplicates across lists
-
-            // Get custom fields from each list
-            foreach ($listsResult->response as $list) {
-                if (!isset($list->ListID)) {
-                    continue;
-                }
-
-                $listClient = new \CS_REST_Lists($list->ListID, ['api_key' => $this->apiKey]);
-                $customFieldsResult = $listClient->get_custom_fields();
-
-                if ($customFieldsResult->was_successful() && isset($customFieldsResult->response) && is_array($customFieldsResult->response)) {
-                    foreach ($customFieldsResult->response as $field) {
-                        // Skip if we've already processed this field key
-                        if (isset($field->Key) && in_array($field->Key, $processedKeys)) {
-                            continue;
-                        }
-
-                        if (isset($field->Key)) {
-                            $processedKeys[] = $field->Key;
-                            $allCustomFields[] = $field;
-                        }
-                    }
-                } else {
-                    Log::warning('Failed to get custom fields from list', [
-                        'list_id' => $list->ListID,
-                        'error' => $customFieldsResult->response ?? 'Unknown error'
-                    ]);
-                }
-            }
-
-            if (empty($allCustomFields)) {
-                Log::info('No custom fields found in any Campaign Monitor lists', [
-                    'client_id' => $this->clientId,
-                    'lists_count' => count($listsResult->response)
+            if (empty($customFieldsResult->response)) {
+                Log::info('No custom fields found in Campaign Monitor list', [
+                    'list_id' => $this->listId
                 ]);
             }
 
-            return $this->formatCustomFields($allCustomFields);
+            return $this->formatCustomFields($customFieldsResult->response);
 
         } catch (Exception $e) {
             Log::error('Failed to fetch custom fields from Campaign Monitor', [
                 'error' => $e->getMessage(),
-                'client_id' => $this->clientId
+                'list_id' => $this->listId
             ]);
             throw new Exception('Failed to fetch custom fields from Campaign Monitor: ' . $e->getMessage());
         }
@@ -191,19 +155,138 @@ class CampaignMonitorService
                 return false;
             }
 
-            if (!$this->clientId) {
+            if (!$this->listId) {
                 return false;
             }
 
-            // Test connection by trying to get lists (should work with valid credentials)
-            $result = $this->client->get_lists();
-            return isset($result->response);
+            // Test connection by trying to get custom fields from the list
+            $result = $this->listClient->get_custom_fields();
+            return $result->was_successful();
         } catch (Exception $e) {
             Log::error('Campaign Monitor connection test failed', [
                 'error' => $e->getMessage(),
-                'client_id' => $this->clientId
+                'list_id' => $this->listId
             ]);
             return false;
+        }
+    }
+
+    /**
+     * Format API error messages for better user understanding
+     */
+    private function formatApiError($result): string
+    {
+        if (isset($result->response->Code) && isset($result->response->Message)) {
+            $code = $result->response->Code;
+            $message = $result->response->Message;
+
+            // Common error codes with user-friendly messages
+            switch ($code) {
+                case 100:
+                    return "Invalid API Key - The API key provided is not valid. Please check your CM_API_KEY in the .env file.";
+                case 101:
+                    return "Invalid Client ID - The client ID is not valid. Please check your configuration.";
+                case 102:
+                    return "Invalid List ID - The list ID '{$this->listId}' is not valid. Please check your CREATESEND_LIST_ID.";
+                case 103:
+                    return "Permission Denied - The API key doesn't have permission to access this list.";
+                case 104:
+                    return "List Not Found - No list found with ID '{$this->listId}'. Please verify the list ID.";
+                case 105:
+                    return "Account Inactive - Your Campaign Monitor account is inactive.";
+                case 106:
+                    return "API Limit Exceeded - You've exceeded the API rate limit. Please try again later.";
+                case 107:
+                    return "List Inactive - The list '{$this->listId}' is inactive.";
+                case 120:
+                    return "Invalid OAuth Token - The OAuth token is invalid or expired.";
+                case 121:
+                    return "OAuth Token Expired - The OAuth token has expired.";
+                case 122:
+                    return "OAuth Token Revoked - The OAuth token has been revoked.";
+                case 123:
+                    return "Invalid OAuth Scope - The OAuth token doesn't have the required scope.";
+                case 124:
+                    return "OAuth Grant Expired - The OAuth grant has expired.";
+                case 125:
+                    return "OAuth Invalid Request - The OAuth request is invalid.";
+                case 126:
+                    return "OAuth Unsupported Grant Type - The OAuth grant type is not supported.";
+                case 127:
+                    return "OAuth Invalid Client - The OAuth client credentials are invalid.";
+                case 200:
+                    return "Server Error - Campaign Monitor is experiencing technical difficulties. Please try again later.";
+                case 201:
+                    return "Maintenance Mode - Campaign Monitor is currently down for maintenance.";
+                case 202:
+                    return "Service Unavailable - Campaign Monitor service is temporarily unavailable.";
+                default:
+                    return "Campaign Monitor API Error (Code {$code}): {$message}";
+            }
+        }
+
+        // Fallback for other error formats
+        if (is_string($result->response)) {
+            return $result->response;
+        }
+
+        if (is_object($result->response)) {
+            $errorData = json_decode(json_encode($result->response), true);
+            if (isset($errorData['Message'])) {
+                return $errorData['Message'];
+            }
+            if (isset($errorData['error'])) {
+                return $errorData['error'];
+            }
+        }
+
+        return json_encode($result->response);
+    }
+
+    /**
+     * Get detailed list information
+     */
+    public function getListDetails(): array
+    {
+        try {
+            if (!$this->isAvailable || !$this->listId) {
+                return [];
+            }
+
+            // Try to get list details (this might not be available in all SDK versions)
+            $result = $this->listClient->get();
+
+            if ($result->was_successful() && isset($result->response)) {
+                return [
+                    'name' => $result->response->Title ?? 'Unknown List',
+                    'id' => $result->response->ListID ?? $this->listId,
+                    'created_date' => $result->response->CreatedDate ?? 'Unknown',
+                    'member_count' => $result->response->MemberCount ?? 0,
+                    'active_member_count' => $result->response->ActiveMemberCount ?? 0,
+                    'web_form_url' => $result->response->WebFormURL ?? null,
+                    'confirmed_opt_in' => $result->response->ConfirmedOptIn ?? false,
+                ];
+            }
+
+            // Fallback to basic info
+            return [
+                'name' => "List {$this->listId}",
+                'id' => $this->listId,
+                'member_count' => 'Unknown',
+                'created_date' => 'Unknown',
+            ];
+
+        } catch (Exception $e) {
+            Log::warning('Failed to get list details', [
+                'error' => $e->getMessage(),
+                'list_id' => $this->listId
+            ]);
+
+            return [
+                'name' => "List {$this->listId}",
+                'id' => $this->listId,
+                'error' => 'Unable to retrieve list details: ' . $e->getMessage(),
+            ];
         }
     }
 
@@ -217,6 +300,7 @@ class CampaignMonitorService
             'connected' => false,
             'error' => null,
             'client_name' => null,
+            'list_details' => [],
         ];
 
         try {
@@ -225,23 +309,29 @@ class CampaignMonitorService
                 return $status;
             }
 
-            $status['configured'] = !empty($this->apiKey) && !empty($this->clientId);
+            $status['configured'] = !empty($this->apiKey) && !empty($this->listId);
 
             if (!$status['configured']) {
                 $missing = [];
                 if (empty($this->apiKey)) $missing[] = 'API Key';
-                if (empty($this->clientId)) $missing[] = 'Client ID';
+                if (empty($this->listId)) $missing[] = 'List ID';
                 $status['error'] = 'Missing configuration: ' . implode(', ', $missing);
                 return $status;
             }
 
-            // Test connection by trying to get lists
-            $client = new \CS_REST_Clients($this->clientId, ['api_key' => $this->apiKey]);
-            $result = $client->get_lists();
+            // Test connection by trying to get custom fields from the list
+            $result = $this->listClient->get_custom_fields();
 
-            if (isset($result->response)) {
+            if ($result->was_successful()) {
                 $status['connected'] = true;
-                $status['client_name'] = "Client {$this->clientId}";
+
+                // Get detailed list information
+                $listDetails = $this->getListDetails();
+                $status['list_details'] = $listDetails;
+                $status['client_name'] = $listDetails['name'] ?? "List {$this->listId}";
+            } else {
+                // Use the improved error formatting
+                $status['error'] = $this->formatApiError($result);
             }
 
         } catch (Exception $e) {

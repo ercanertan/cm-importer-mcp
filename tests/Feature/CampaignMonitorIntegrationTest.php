@@ -20,7 +20,7 @@ it('provides correct status when not configured', function () {
 
 it('provides configured status when credentials exist', function () {
     config(['app.campign_monitor.cm_api_key' => 'test-api-key']);
-    config(['app.campign_monitor.client_id' => 'test-client-id']);
+    config(['app.campign_monitor.list_id' => 'test-list-id']);
 
     $service = new CampaignMonitorService();
     $status = $service->getConnectionStatus();
@@ -32,7 +32,7 @@ it('provides configured status when credentials exist', function () {
 
 it('handles missing api key gracefully', function () {
     config(['app.campign_monitor.cm_api_key' => null]);
-    config(['app.campign_monitor.client_id' => 'some-client']);
+    config(['app.campign_monitor.list_id' => 'some-list']);
 
     $service = new CampaignMonitorService();
     $status = $service->getConnectionStatus();
@@ -43,7 +43,7 @@ it('handles missing api key gracefully', function () {
 
 it('provides proper error for partial configuration', function () {
     config(['app.campign_monitor.cm_api_key' => null]);
-    config(['app.campign_monitor.client_id' => 'some-client-id']);
+    config(['app.campign_monitor.list_id' => 'some-list-id']);
 
     $service = new CampaignMonitorService();
     $status = $service->getConnectionStatus();
@@ -53,9 +53,21 @@ it('provides proper error for partial configuration', function () {
     expect($status['error'])->toContain('API Key');
 });
 
+it('provides proper error for missing list id', function () {
+    config(['app.campign_monitor.cm_api_key' => 'test-api-key']);
+    config(['app.campign_monitor.list_id' => null]);
+
+    $service = new CampaignMonitorService();
+    $status = $service->getConnectionStatus();
+
+    expect($status['configured'])->toBeFalse();
+    expect($status['error'])->toContain('Missing configuration');
+    expect($status['error'])->toContain('List ID');
+});
+
 it('can format sample campaign monitor data', function () {
     config(['app.campign_monitor.cm_api_key' => 'test-key']);
-    config(['app.campign_monitor.client_id' => 'test-client']);
+    config(['app.campign_monitor.list_id' => 'test-list']);
 
     $service = new CampaignMonitorService();
 

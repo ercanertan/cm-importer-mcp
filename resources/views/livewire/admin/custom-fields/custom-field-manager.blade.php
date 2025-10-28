@@ -10,67 +10,14 @@
                         </div>
                         <div class="flex gap-3">
                             <button wire:click="openCampaignMonitorModal"
-                                    wire:loading.attr="disabled"
-                                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded flex items-center gap-2"
-                                    title="@if($cmConnectionStatus['connected'] ?? false) Fetch from Campaign Monitor: {{ $cmConnectionStatus['client_name'] ?? 'Unknown Client' }} @else Campaign Monitor not connected @endif">
-                                @if($isFetchingFromCm)
-                                    <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    Fetching...
-                                @else
-                                    <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                                    </svg>
-                                    Fetch from Campaign Monitor
-                                @endif
-                            </button>
-                            <button wire:click="openJsonModal"
-                                    class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
-                                Import from JSON
+                                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                                Import Custom Fields
                             </button>
                             <button wire:click="openCreateModal"
                                     class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">
                                 Create Custom Field
                             </button>
                         </div>
-
-                        {{-- Campaign Monitor Status --}}
-                        @if(isset($cmConnectionStatus['configured']) && !$cmConnectionStatus['configured'])
-                            <div class="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                                <div class="flex items-center">
-                                    <svg class="h-5 w-5 text-yellow-400 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                    </svg>
-                                    <div class="text-sm text-yellow-800">
-                                        <strong>Campaign Monitor not configured:</strong> Please set CM_API_KEY and CREATESEND_CLIENT_ID in your .env file.
-                                    </div>
-                                </div>
-                            </div>
-                        @elseif(isset($cmConnectionStatus['connected']) && !$cmConnectionStatus['connected'])
-                            <div class="mt-3 p-3 bg-red-50 border border-red-200 rounded-md">
-                                <div class="flex items-center">
-                                    <svg class="h-5 w-5 text-red-400 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-                                    </svg>
-                                    <div class="text-sm text-red-800">
-                                        <strong>Campaign Monitor connection failed:</strong> {{ $cmConnectionStatus['error'] ?? 'Unknown error' }}
-                                    </div>
-                                </div>
-                            </div>
-                        @elseif(isset($cmConnectionStatus['connected']) && $cmConnectionStatus['connected'])
-                            <div class="mt-3 p-3 bg-green-50 border border-green-200 rounded-md">
-                                <div class="flex items-center">
-                                    <svg class="h-5 w-5 text-green-400 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-                                    </svg>
-                                    <div class="text-sm text-green-800">
-                                        <strong>Connected to Campaign Monitor:</strong> {{ $cmConnectionStatus['client_name'] ?? 'Unknown Client' }}
-                                    </div>
-                                </div>
-                            </div>
-                        @endif
                     </div>
 
                     @if (session()->has('message'))
@@ -404,72 +351,7 @@
         </div>
         @endif
 
-        <!-- JSON Input Modal -->
-        @if($showJsonModal)
-            <div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-                <div class="relative min-h-screen flex items-center justify-center p-4">
-                    <div class="relative bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:max-w-4xl sm:w-full">
-                        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Import Custom Fields from JSON</h3>
-
-                            @if(!empty($importErrors))
-                                <div class="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-                                    @foreach($importErrors as $error)
-                                        <p class="text-sm">{{ $error }}</p>
-                                    @endforeach
-                                </div>
-                            @endif
-
-                            <div class="mb-4">
-                                <label for="jsonInput" class="block text-sm font-medium text-gray-700 mb-2">JSON Data</label>
-                                <textarea wire:model="jsonInput"
-                                          id="jsonInput"
-                                          rows="12"
-                                          class="w-full border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 p-3 font-mono text-sm"
-                                          placeholder='[{"FieldName":"Job Title","Key":"[JobTitle]","DataType":"Text","FieldOptions":[],"VisibleInPreferenceCenter":true}]'></textarea>
-                                @error('jsonInput')
-                                    <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
-                                @enderror
-                            </div>
-
-                            <div class="mb-4">
-                                <details class="text-sm">
-                                    <summary class="cursor-pointer text-blue-600 hover:text-blue-800 font-medium">
-                                        Example Format & Requirements
-                                    </summary>
-                                    <div class="mt-2 p-3 bg-gray-50 rounded-md">
-                                        <div class="mb-3">
-                                            <h4 class="font-semibold text-gray-800 mb-2">Required Format:</h4>
-                                            <pre class="text-xs text-gray-700 bg-white p-2 rounded overflow-x-auto"><code>{{ $this->getExampleJson() }}</code></pre>
-                                        </div>
-                                        <div class="text-xs text-gray-600">
-                                            <ul class="list-disc list-inside space-y-1">
-                                                <li><strong>FieldName</strong>: Field display name (required)</li>
-                                                <li><strong>Key</strong>: Field key in brackets like [JobTitle] (required)</li>
-                                                <li><strong>DataType</strong>: Text, Number, Date, MultiSelectOne, MultiSelectMany, Country (required)</li>
-                                                <li><strong>FieldOptions</strong>: Array of options for select fields (required)</li>
-                                                <li><strong>VisibleInPreferenceCenter</strong>: Boolean value (required)</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </details>
-                            </div>
-                        </div>
-                        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                            <button wire:click="closeJsonModal" type="button"
-                                    class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:w-auto sm:ml-3 sm:text-sm">
-                                Cancel
-                            </button>
-                            <button wire:click="processJsonInput" type="button"
-                                    class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-purple-600 text-base font-medium text-white hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 sm:w-auto sm:text-sm">
-                                Process JSON
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        @endif
-
+        
         <!-- JSON Preview Modal -->
         @if($showPreviewModal)
             <div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" aria-labelledby="modal-title" role="dialog" aria-modal="true">
@@ -633,5 +515,375 @@
                 </div>
             </div>
         @endif
-    </div>
+
+    {{-- Campaign Monitor Import Modal --}}
+    @if($showCampaignMonitorModal)
+        <div class="fixed z-50 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0 bg-gray-500">
+                <div class="inset-0 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+                <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full">
+                    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900">Import Custom Fields</h3>
+                            <button wire:click="closeCampaignMonitorModal" class="text-gray-400 hover:text-gray-600">
+                                <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Connection Status -->
+                        <div class="mb-6 p-4 {{
+                            $cmConnectionStatus['configured'] && $cmConnectionStatus['connected'] ? 'bg-green-50 border-green-200' :
+                            ($cmConnectionStatus['configured'] ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200')
+                        }} border rounded-md">
+                            @if($cmConnectionStatus['configured'] && $cmConnectionStatus['connected'])
+                                <div class="flex items-center mb-3">
+                                    <svg class="h-5 w-5 text-green-400 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                                    </svg>
+                                    <div class="text-sm text-green-800">
+                                        <strong>Connection Successfully</strong>
+                                    </div>
+                                </div>
+
+                                @if(!empty($cmConnectionStatus['list_details']))
+                                    <div class="mt-3 space-y-2">
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <span class="text-xs text-green-600 font-medium">List Name:</span>
+                                                <div class="text-sm text-green-900 font-mono">{{ $cmConnectionStatus['list_details']['name'] }}</div>
+                                            </div>
+                                            @if(isset($cmConnectionStatus['list_details']['created_date']) && $cmConnectionStatus['list_details']['created_date'] !== 'Unknown')
+                                                <div>
+                                                    <span class="text-xs text-green-600 font-medium">Created:</span>
+                                                    <div class="text-sm text-green-900">{{ $cmConnectionStatus['list_details']['created_date'] }}</div>
+                                                </div>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @else
+                                    <div class="text-sm text-green-800 mt-2">
+                                        <strong>List:</strong> {{ $cmConnectionStatus['client_name'] ?? 'Unknown List' }}
+                                    </div>
+                                @endif
+
+                            @elseif($cmConnectionStatus['configured'])
+                                <div class="flex items-center mb-3">
+                                    <svg class="h-5 w-5 text-red-400 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                                    </svg>
+                                    <div class="text-sm text-red-800">
+                                        <strong>Connection failed</strong>
+                                    </div>
+                                </div>
+                                <div class="text-sm text-red-700 mt-2 p-3 bg-red-100 rounded">
+                                    {{ $cmConnectionStatus['error'] ?? 'Unknown error' }}
+                                </div>
+
+                                <!-- Troubleshooting section -->
+                                <div class="mt-3 p-3 bg-gray-50 rounded">
+                                    <h5 class="text-xs font-semibold text-gray-700 mb-2">Troubleshooting Steps:</h5>
+                                    <ul class="text-xs text-gray-600 space-y-1 list-disc list-inside">
+                                        <li>Verify your CM_API_KEY is correct in the .env file</li>
+                                        <li>Check that CREATESEND_LIST_ID matches your actual list ID</li>
+                                        <li>Ensure the API key has permission to access this list</li>
+                                        <li>Confirm the list is active and not deleted</li>
+                                    </ul>
+                                </div>
+
+                            @else
+                                <div class="flex items-center mb-3">
+                                    <svg class="h-5 w-5 text-yellow-400 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                    </svg>
+                                    <div class="text-sm text-yellow-800">
+                                        <strong>Campaign Monitor not configured</strong>
+                                    </div>
+                                </div>
+                                <div class="text-sm text-yellow-700 mt-2 p-3 bg-yellow-100 rounded">
+                                    Please set the following in your .env file:
+                                    <div class="mt-2 font-mono text-xs bg-yellow-50 p-2 rounded">
+                                        CM_API_KEY=your_api_key_here<br>
+                                        CREATESEND_LIST_ID=your_list_id_here
+                                    </div>
+                                </div>
+                            @endif
+                        </div>
+
+                        <!-- Fetch Status -->
+                        @if($cmFetchStatus !== 'idle')
+                            <div class="mb-6 p-4 {{
+                                $cmFetchStatus === 'success' ? 'bg-green-50 border-green-200' :
+                                ($cmFetchStatus === 'error' ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200')
+                            }} border rounded-md">
+                                <div class="flex items-center">
+                                    @if($cmFetchStatus === 'checking' || $cmFetchStatus === 'fetching')
+                                        <svg class="animate-spin h-5 w-5 text-blue-400 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    @elseif($cmFetchStatus === 'success')
+                                        <svg class="h-5 w-5 text-green-400 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                                        </svg>
+                                    @else
+                                        <svg class="h-5 w-5 text-red-400 mr-2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                                        </svg>
+                                    @endif
+                                    <div class="text-sm {{
+                                        $cmFetchStatus === 'success' ? 'text-green-800' :
+                                        ($cmFetchStatus === 'error' ? 'text-red-800' : 'text-blue-800')
+                                    }}">
+                                        {{ $cmFetchMessage }}
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
+                        <!-- Import Options -->
+                        @if($cmFetchStatus === 'idle' || $cmFetchStatus === 'error')
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                <!-- Campaign Monitor Option -->
+                                <div class="border border-gray-200 rounded-lg p-4 hover:border-green-300 transition-colors">
+                                    <div class="flex items-center mb-3">
+                                        <svg class="h-6 w-6 text-green-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                                        </svg>
+                                        <h4 class="text-lg font-semibold text-gray-900">Fetch from Campaign Monitor</h4>
+                                    </div>
+                                    <p class="text-sm text-gray-600 mb-4">
+                                        Automatically fetch custom fields from your Campaign Monitor list.
+                                    </p>
+                                    @if($cmConnectionStatus['configured'] && $cmConnectionStatus['connected'])
+                                        <button wire:click="fetchFromCampaignMonitor"
+                                                wire:loading.attr="disabled"
+                                                class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded">
+                                            @if($isFetchingFromCm)
+                                                <span class="flex items-center justify-center">
+                                                    <svg class="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    Fetching...
+                                                </span>
+                                            @else
+                                                Fetch Fields
+                                            @endif
+                                        </button>
+                                    @else
+                                        <button disabled class="w-full bg-gray-400 text-white font-medium py-2 px-4 rounded cursor-not-allowed">
+                                            {{ $cmConnectionStatus['configured'] ? 'Connection Required' : 'Configuration Required' }}
+                                        </button>
+                                    @endif
+                                </div>
+
+                                <!-- JSON Import Option -->
+                                <div class="border border-gray-200 rounded-lg p-4 hover:border-purple-300 transition-colors">
+                                    <div class="flex items-center mb-3">
+                                        <svg class="h-6 w-6 text-purple-600 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <h4 class="text-lg font-semibold text-gray-900">Import from JSON</h4>
+                                    </div>
+                                    <p class="text-sm text-gray-600 mb-4">
+                                        Paste your own JSON data to import custom fields.
+                                    </p>
+                                    <button wire:click="$set('cmShowPreview', false); $set('jsonInput', '')"
+                                            class="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded">
+                                        Use JSON
+                                    </button>
+                                </div>
+                            </div>
+                        @endif
+
+                        <!-- JSON Input Section -->
+                        @if(!$cmShowPreview && ($cmFetchStatus === 'idle' || $cmFetchStatus === 'error') && !empty($jsonInput))
+                            <div class="mb-6">
+                                <h4 class="text-md font-semibold text-gray-900 mb-3">JSON Data</h4>
+                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                    <div>
+                                        <textarea wire:model="jsonInput"
+                                                  rows="8"
+                                                  class="w-full border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 p-3 font-mono text-sm"
+                                                  placeholder='Paste your JSON here...'></textarea>
+                                        @error('jsonInput')
+                                            <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                                        @enderror
+                                    </div>
+                                    <div>
+                                        <h5 class="text-sm font-medium text-gray-700 mb-2">Example Format:</h5>
+                                        <pre class="text-xs text-gray-700 bg-gray-50 p-3 rounded overflow-x-auto"><code>{{ $this->getExampleJson() }}</code></pre>
+                                        <button wire:click="processJsonInput"
+                                                class="mt-3 bg-purple-600 hover:bg-purple-700 text-white font-medium py-2 px-4 rounded">
+                                            Process JSON
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
+                        <!-- Campaign Monitor Preview -->
+                        @if($cmFetchStatus === 'success' && !$cmShowPreview && !empty($cmFetchedFields))
+                            <div class="mb-6">
+                                <div class="flex justify-between items-center mb-3">
+                                    <h4 class="text-md font-semibold text-gray-900">Campaign Monitor Fields Found</h4>
+                                    <span class="text-sm text-gray-600">
+                                        {{ $previewData['statistics']['total'] }} fields total
+                                    </span>
+                                </div>
+                                <div class="bg-blue-50 border border-blue-200 rounded-md p-4">
+                                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                                        <div>
+                                            <div class="text-2xl font-bold text-blue-600">{{ $previewData['statistics']['new'] ?? 0 }}</div>
+                                            <div class="text-xs text-blue-800">New</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-2xl font-bold text-orange-600">{{ $previewData['statistics']['updated'] ?? 0 }}</div>
+                                            <div class="text-xs text-orange-800">Updates</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-2xl font-bold text-yellow-600">{{ $previewData['statistics']['duplicates'] ?? 0 }}</div>
+                                            <div class="text-xs text-yellow-800">Duplicates</div>
+                                        </div>
+                                        <div>
+                                            <div class="text-2xl font-bold text-green-600">{{ ($previewData['statistics']['new'] ?? 0) + ($previewData['statistics']['updated'] ?? 0) }}</div>
+                                            <div class="text-xs text-green-800">Importable</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button wire:click="showCampaignMonitorPreview"
+                                        class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded">
+                                    Review & Approve Changes
+                                </button>
+                            </div>
+                        @endif
+
+                        <!-- Preview Section -->
+                        @if($cmShowPreview && !empty($previewData))
+                            <div class="mb-6">
+                                <div class="flex justify-between items-center mb-3">
+                                    <h4 class="text-md font-semibold text-gray-900">Review Import Changes</h4>
+                                    <div class="text-sm text-gray-600">
+                                        Selected: {{ count($selectedPreviewIndices) }} fields
+                                    </div>
+                                </div>
+
+                                <!-- Selection Controls -->
+                                <div class="mb-4 flex justify-between items-center p-3 bg-gray-50 rounded">
+                                    <div>
+                                        <button wire:click="selectAllValidFields" type="button"
+                                                class="text-sm text-blue-600 hover:text-blue-800 font-medium mr-4">
+                                            Select All Valid
+                                        </button>
+                                        <button wire:click="clearSelection" type="button"
+                                                class="text-sm text-gray-600 hover:text-gray-800 font-medium">
+                                            Clear Selection
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Preview Content -->
+                                <div class="space-y-4 max-h-64 overflow-y-auto">
+                                    @if(!empty($previewData['new']))
+                                        <div>
+                                            <h5 class="text-sm font-semibold text-green-800 mb-2">New Fields ({{ count($previewData['new']) }})</h5>
+                                            <div class="space-y-2">
+                                                @foreach($previewData['new'] as $item)
+                                                    <div class="border border-green-200 rounded-md p-3 bg-green-50">
+                                                        <div class="flex items-start">
+                                                            <input type="checkbox"
+                                                                   wire:model.live="selectedPreviewIndices"
+                                                                   value="{{ $item['index'] }}"
+                                                                   class="mt-1 mr-3">
+                                                            <div class="flex-1">
+                                                                <div class="font-medium text-green-900">{{ $item['external']['field_name'] }}</div>
+                                                                <div class="text-sm text-green-700">
+                                                                    Key: {{ $item['external']['field_key'] }} | Type: {{ $item['external']['data_type'] }}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    @endif
+
+                                    @if(!empty($previewData['updated']))
+                                        <div>
+                                            <h5 class="text-sm font-semibold text-orange-800 mb-2">Fields to Update ({{ count($previewData['updated']) }})</h5>
+                                            <div class="space-y-2">
+                                                @foreach($previewData['updated'] as $item)
+                                                    <div class="border border-orange-200 rounded-md p-3 bg-orange-50">
+                                                        <div class="flex items-start">
+                                                            <input type="checkbox"
+                                                                   wire:model.live="selectedPreviewIndices"
+                                                                   value="{{ $item['index'] }}"
+                                                                   class="mt-1 mr-3">
+                                                            <div class="flex-1">
+                                                                <div class="font-medium text-orange-900">{{ $item['external']['field_name'] }}</div>
+                                                                <div class="text-sm text-orange-700">
+                                                                    Key: {{ $item['external']['field_key'] }} | Type: {{ $item['external']['data_type'] }}
+                                                                </div>
+                                                                @if(!empty($item['differences']))
+                                                                    <div class="mt-1 text-xs text-orange-600">
+                                                                        Changes: {{ implode(', ', array_keys($item['differences'])) }}
+                                                                    </div>
+                                                                @endif
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    @endif
+
+                                    @if(!empty($previewData['duplicates']))
+                                        <div>
+                                            <h5 class="text-sm font-semibold text-yellow-800 mb-2">Duplicates ({{ count($previewData['duplicates']) }})</h5>
+                                            <div class="space-y-2">
+                                                @foreach($previewData['duplicates'] as $item)
+                                                    <div class="border border-yellow-200 rounded-md p-3 bg-yellow-50 opacity-75">
+                                                        <div class="flex items-center">
+                                                            <div class="text-yellow-600 mr-2">⚠️</div>
+                                                            <div>
+                                                                <div class="font-medium text-yellow-900">{{ $item['external']['field_name'] }}</div>
+                                                                <div class="text-sm text-yellow-700">
+                                                                    {{ $item['reason'] }}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    @endif
+                                </div>
+
+                                <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                                    <p class="text-sm text-blue-800">
+                                        <strong>Ready to import:</strong> {{ count($selectedPreviewIndices) }} fields will be imported into your system.
+                                    </p>
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+                    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                        @if($cmShowPreview && !empty($previewData))
+                            <button wire:click="applyCampaignMonitorChanges" type="button"
+                                    class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:w-auto sm:ml-3 sm:text-sm">
+                                Import Selected ({{ count($selectedPreviewIndices) }})
+                            </button>
+                        @endif
+                        <button wire:click="closeCampaignMonitorModal" type="button"
+                                class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:w-auto {{ ($cmShowPreview && !empty($previewData)) ? 'sm:ml-3' : '' }} sm:text-sm">
+                            {{ $cmShowPreview ? 'Cancel' : 'Close' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

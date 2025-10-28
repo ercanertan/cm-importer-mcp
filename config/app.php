@@ -125,7 +125,7 @@ return [
 
     'campign_monitor' =>[
         'cm_api_key' => env('CM_API_KEY', ''),
-        'client_id' => env('CREATESEND_CLIENT_ID', ''),
+        'list_id' => env('CREATESEND_LIST_ID',''),
         'redirect_url' => env('CREATESEND_REDIRECT_URI', '')
     ]
 
