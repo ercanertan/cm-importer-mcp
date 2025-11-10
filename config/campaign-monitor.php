@@ -153,6 +153,85 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Campaign Monitor API Settings
+    |--------------------------------------------------------------------------
+    |
+    | Configuration for Campaign Monitor API integration.
+    |
+    */
+
+    // Campaign Monitor API Key
+    'api_key' => env('CM_API_KEY'),
+
+    // Campaign Monitor Client ID
+    'client_id' => env('CM_CLIENT_ID'),
+
+    // Campaign Monitor List ID (single list for all subscribers)
+    'list_id' => env('CM_LIST_ID'),
+
+    // Core custom fields synced to Campaign Monitor (4 fields only)
+    'core_fields' => [
+        'user_id' => [
+            'key' => 'user_id',
+            'name' => 'Laravel User ID',
+            'data_type' => 'Text',
+            'visible_in_preference_center' => false,
+            'description' => 'Internal Laravel user ID for reliable webhook processing',
+        ],
+        'organization_name' => [
+            'key' => 'organization_name',
+            'name' => 'Organization Name',
+            'data_type' => 'Text',
+            'visible_in_preference_center' => true,
+            'description' => 'User\'s organization name for personalization',
+        ],
+        'tier' => [
+            'key' => 'tier',
+            'name' => 'Subscription Tier',
+            'data_type' => 'Text',
+            'visible_in_preference_center' => false,
+            'description' => 'Subscription tier (free, paid_pro, paid_premium, enterprise)',
+        ],
+        'temp_campaign_tag' => [
+            'key' => 'temp_campaign_tag',
+            'name' => 'Campaign Tag (Auto-Managed)',
+            'data_type' => 'Text',
+            'visible_in_preference_center' => false,
+            'description' => 'Temporary tag for complex CDP-driven campaigns',
+        ],
+    ],
+
+    // Segment naming prefixes for clarity in CM
+    'segment_prefixes' => [
+        'recurring' => '[Recurring]',
+        'one_off' => '[One-off]',
+    ],
+
+    // Days to keep one-off segments before cleanup
+    'segment_cleanup_days' => env('CM_SEGMENT_CLEANUP_DAYS', 30),
+
+    // Bulk tagging settings
+    'bulk_import_batch_size' => env('CM_BULK_IMPORT_BATCH_SIZE', 1000),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Auto-Sync Settings
+    |--------------------------------------------------------------------------
+    |
+    | Settings for automatic syncing via UserObserver.
+    |
+    */
+
+    // Disable automatic sync to Campaign Monitor via UserObserver
+    'disable_auto_sync' => env('CM_DISABLE_AUTO_SYNC', false),
+
+    // Threshold for immediate vs queued sync (organization tier changes)
+    // If organization has <= this many users, sync immediately
+    // If > this many users, queue bulk sync job
+    'sync_threshold' => env('CM_SYNC_THRESHOLD', 10),
+
+    /*
+    |--------------------------------------------------------------------------
     | Performance Settings
     |--------------------------------------------------------------------------
     |

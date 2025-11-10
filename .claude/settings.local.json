@@ -23,7 +23,8 @@
       "Bash(find:*)",
       "Bash(vendor/bin/pest:*)",
       "Bash(awk:*)",
-      "Bash(xargs kill:*)"
+      "Bash(xargs kill:*)",
+      "Bash(composer require:*)"
     ],
     "deny": [],
     "ask": []

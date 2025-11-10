@@ -32,6 +32,16 @@ class User extends Authenticatable
         'cm_unsubscribed_at',
         'cm_status_changed_at',
         'permission_to_track',
+        'tier',
+        'total_emails_sent',
+        'total_opens',
+        'total_clicks',
+        'total_bounces',
+        'engagement_score',
+        'last_email_opened_at',
+        'last_email_clicked_at',
+        'last_activity_at',
+        'temp_campaign_tag',
     ];
 
     /**
@@ -60,6 +70,10 @@ class User extends Authenticatable
             'cm_unsubscribed_at' => 'datetime',
             'cm_status_changed_at' => 'datetime',
             'permission_to_track' => 'boolean',
+            'engagement_score' => 'decimal:2',
+            'last_email_opened_at' => 'datetime',
+            'last_email_clicked_at' => 'datetime',
+            'last_activity_at' => 'datetime',
         ];
     }
 
@@ -211,5 +225,39 @@ class User extends Authenticatable
     public function scopeByCampaignMonitorId($query, $subscriberId)
     {
         return $query->where('cm_subscriber_id', $subscriberId);
+    }
+
+    /**
+     * Get all email engagements for this user
+     */
+    public function emailEngagements()
+    {
+        return $this->hasMany(EmailEngagement::class);
+    }
+
+    /**
+     * Get all event attendances for this user
+     */
+    public function eventAttendances()
+    {
+        return $this->hasMany(EventAttendance::class);
+    }
+
+    /**
+     * Get all events this user is attending (via attendances)
+     */
+    public function events()
+    {
+        return $this->belongsToMany(Event::class, 'event_attendances')
+            ->withPivot(['status', 'registered_at', 'attended_at', 'attendance_confirmed'])
+            ->withTimestamps();
+    }
+
+    /**
+     * Get events this user is organizing
+     */
+    public function organizedEvents()
+    {
+        return $this->hasMany(Event::class, 'organizer_id');
     }
 }

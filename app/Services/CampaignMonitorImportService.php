@@ -1053,6 +1053,9 @@ class CampaignMonitorImportService
     public function processChunkData($chunkData, $headers, $log)
     {
         try {
+            // Set bulk import flag to prevent UserObserver from syncing each user individually
+            app()->instance('cm.bulk_import_active', true);
+
             $processed = 0;
             $created = 0;
             $updated = 0;
@@ -1092,6 +1095,9 @@ class CampaignMonitorImportService
                 'success' => false,
                 'error' => $e->getMessage()
             ];
+        } finally {
+            // Clear bulk import flag when chunk processing completes
+            app()->forgetInstance('cm.bulk_import_active');
         }
     }
 

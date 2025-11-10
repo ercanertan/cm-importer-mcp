@@ -99,4 +99,17 @@ Route::prefix('admin/domains')->name('admin.domains.')->group(function () {
 });
 */
 
+// Campaign Monitor Webhook Routes
+// These routes are publicly accessible (no auth middleware)
+// Campaign Monitor will POST to these endpoints with webhook data
+Route::prefix('api/webhooks/campaign-monitor')->name('webhooks.cm.')->group(function () {
+    Route::post('/deactivate', [\App\Http\Controllers\Api\CmWebhookController::class, 'handleDeactivate'])->name('deactivate');
+    Route::post('/update', [\App\Http\Controllers\Api\CmWebhookController::class, 'handleUpdate'])->name('update');
+    Route::post('/open', [\App\Http\Controllers\Api\CmWebhookController::class, 'handleOpen'])->name('open');
+    Route::post('/click', [\App\Http\Controllers\Api\CmWebhookController::class, 'handleClick'])->name('click');
+    Route::post('/bounce', [\App\Http\Controllers\Api\CmWebhookController::class, 'handleBounce'])->name('bounce');
+    Route::post('/unsubscribe', [\App\Http\Controllers\Api\CmWebhookController::class, 'handleUnsubscribe'])->name('unsubscribe');
+    Route::post('/spam-complaint', [\App\Http\Controllers\Api\CmWebhookController::class, 'handleSpamComplaint'])->name('spam-complaint');
+});
+
 require __DIR__.'/auth.php';
