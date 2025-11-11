@@ -36,17 +36,38 @@
 
     <!-- Tabs -->
     <flux:tabs wire:model="selectedTab">
-        <flux:tab name="create" icon="plus-circle">Create Campaign</flux:tab>
-        <flux:tab name="active" icon="tag">Active Campaigns</flux:tab>
-        <flux:tab name="helper" icon="sparkles">Quick Actions</flux:tab>
+        <flux:tab name="create" icon="plus-circle">Tag Users (CDP)</flux:tab>
+        <flux:tab name="active" icon="tag">Active Tags (CDP)</flux:tab>
+        <flux:tab name="helper" icon="sparkles">Quick Tag (CDP)</flux:tab>
         <flux:tab name="backfill" icon="arrow-path">Backfill & Sync</flux:tab>
+        <flux:tab name="stats" icon="chart-bar">CM Campaigns</flux:tab>
     </flux:tabs>
 
     <!-- Create Campaign Tab -->
     <div x-show="$wire.selectedTab === 'create'" x-cloak>
+        <!-- Info Panel -->
+        <div class="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+            <div class="flex items-start gap-3">
+                <svg class="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div class="flex-1">
+                    <p class="text-sm font-semibold text-blue-900 dark:text-blue-300">How This Works</p>
+                    <ul class="mt-2 text-xs text-blue-800 dark:text-blue-400 space-y-1">
+                        <li>1️⃣ <strong>Select users in CDP</strong> - Use filters to find your target audience in this Laravel app</li>
+                        <li>2️⃣ <strong>Tag users locally</strong> - Selected users get tagged with <code class="px-1 py-0.5 bg-blue-100 dark:bg-blue-900 rounded">temp_campaign_tag</code> in database</li>
+                        <li>3️⃣ <strong>Sync to Campaign Monitor</strong> - Tags sync to CM automatically (scheduled job runs every 15 min)</li>
+                        <li>4️⃣ <strong>Create segment in CM</strong> - Go to Campaign Monitor → Create segment where <code class="px-1 py-0.5 bg-blue-100 dark:bg-blue-900 rounded">temp_campaign_tag = "your_campaign_name"</code></li>
+                        <li>5️⃣ <strong>Send campaign in CM</strong> - Use CM's interface to create and send the email campaign</li>
+                        <li>6️⃣ <strong>Clean up</strong> - Come back here and click "Clear" to remove the tag and free it for next campaign</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
         <flux:card>
-            <flux:heading>Segment Builder</flux:heading>
-            <flux:subheading>Define your target audience using the filters below</flux:subheading>
+            <flux:heading>CDP Segment Builder</flux:heading>
+            <flux:subheading>Create a tagged user segment in your Customer Data Platform (not in Campaign Monitor)</flux:subheading>
 
             <form wire:submit="createCampaign" class="space-y-6 mt-6">
                 <!-- Campaign Name -->
@@ -117,12 +138,17 @@
                 <!-- Action Buttons -->
                 <div class="flex items-center gap-3">
                     <flux:button wire:click.prevent="previewQuery" variant="outline" icon="eye">
-                        Preview Matches
+                        Preview Matches (in CDP)
                     </flux:button>
 
-                    <flux:button type="submit" variant="primary" icon="check">
-                        Create Campaign & Tag Users
+                    <flux:button type="submit" variant="primary" icon="tag">
+                        Tag Users in CDP Database
                     </flux:button>
+                </div>
+
+                <!-- Next Steps Info -->
+                <div class="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-400">
+                    <strong>⚠️ After tagging:</strong> Users are tagged in your database only. Tags will sync to Campaign Monitor automatically within 15 minutes. Then create a segment in CM and send your campaign there.
                 </div>
 
                 <!-- Preview Results -->
@@ -160,11 +186,33 @@
 
     <!-- Active Campaigns Tab -->
     <div x-show="$wire.selectedTab === 'active'" x-cloak>
+        <!-- Info Panel -->
+        <div class="mb-4 p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+            <div class="flex items-start gap-3">
+                <svg class="h-5 w-5 text-purple-600 dark:text-purple-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+                <div class="flex-1">
+                    <p class="text-sm font-semibold text-purple-900 dark:text-purple-300">Active CDP Tags</p>
+                    <p class="mt-1 text-xs text-purple-800 dark:text-purple-400">
+                        These are user segments tagged in your CDP database. <strong>They are NOT campaigns in Campaign Monitor.</strong> To send an email:
+                    </p>
+                    <ol class="mt-2 text-xs text-purple-800 dark:text-purple-400 space-y-1 list-decimal list-inside">
+                        <li>Wait 15 minutes for tags to sync to CM (or manually trigger sync)</li>
+                        <li>Go to Campaign Monitor → Create new segment</li>
+                        <li>Filter by: <code class="px-1 py-0.5 bg-purple-100 dark:bg-purple-900 rounded">temp_campaign_tag = "campaign_name"</code></li>
+                        <li>Create & send campaign in CM interface</li>
+                        <li>Come back here and click "Clear" to remove the tag</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+
         <flux:card>
             <div class="flex items-center justify-between mb-6">
                 <div>
-                    <flux:heading>Active Campaigns</flux:heading>
-                    <flux:subheading>View and manage your active campaign tags</flux:subheading>
+                    <flux:heading>Active CDP User Tags</flux:heading>
+                    <flux:subheading>Tagged user segments ready to sync to Campaign Monitor</flux:subheading>
                 </div>
                 <flux:button wire:click="loadActiveCampaigns" variant="outline" icon="arrow-path" size="sm">
                     Refresh
@@ -284,8 +332,8 @@
     <!-- Quick Actions Tab -->
     <div x-show="$wire.selectedTab === 'helper'" x-cloak>
         <flux:card>
-            <flux:heading>Quick Actions</flux:heading>
-            <flux:subheading>Pre-built campaign templates for common scenarios</flux:subheading>
+            <flux:heading>Quick Actions (CDP Tagging)</flux:heading>
+            <flux:subheading>Pre-built templates to tag users in CDP - same as "Create Campaign" tab but with fewer filters</flux:subheading>
 
             <form wire:submit="createHelperCampaign" class="space-y-6 mt-6">
                 <!-- Helper Type -->
@@ -496,5 +544,375 @@
                 </div>
             </div>
         </flux:card>
+    </div>
+
+    <!-- Campaign Statistics Tab -->
+    <div x-show="$wire.selectedTab === 'stats'" x-cloak x-init="$wire.checkCmConnection()">
+        <!-- Info Panel -->
+        <div class="mb-4 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+            <div class="flex items-start gap-3">
+                <svg class="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <div class="flex-1">
+                    <p class="text-sm font-semibold text-green-900 dark:text-green-300">Real Campaign Monitor Campaigns</p>
+                    <p class="mt-1 text-xs text-green-800 dark:text-green-400">
+                        <strong>This is different from the other tabs!</strong> These are actual email campaigns that were created and sent in Campaign Monitor.
+                        Import them here to view performance statistics (opens, clicks, etc.) in your CDP for analysis.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <flux:card>
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <flux:heading>Campaign Monitor Campaign Statistics</flux:heading>
+                    <flux:subheading>Import and view performance metrics from actual CM email campaigns (not CDP tags)</flux:subheading>
+                </div>
+                <div class="flex gap-2">
+                    <flux:button wire:click="checkCmConnection" variant="ghost" icon="signal" size="sm">
+                        Test Connection
+                    </flux:button>
+                    <flux:button wire:click="syncCampaignStats" variant="ghost" icon="arrow-path" :disabled="$cmConnectionStatus !== 'connected'">
+                        Sync Stats
+                    </flux:button>
+                    <flux:button wire:click="importCampaignStats" wire:loading.attr="disabled" variant="primary" icon="arrow-down-tray" :disabled="$cmConnectionStatus !== 'connected'">
+                        <span wire:loading.remove wire:target="importCampaignStats">Import Campaigns</span>
+                        <span wire:loading wire:target="importCampaignStats">Importing...</span>
+                    </flux:button>
+                </div>
+            </div>
+
+            <!-- Connection Status Indicator -->
+            <div class="mb-6">
+                @if($cmConnectionStatus === 'checking')
+                    <div class="flex items-center gap-2 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                        <svg class="animate-spin h-5 w-5 text-blue-600 dark:text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <div>
+                            <p class="text-sm font-semibold text-blue-900 dark:text-blue-300">Checking Campaign Monitor Connection...</p>
+                            <p class="text-xs text-blue-700 dark:text-blue-400">Verifying API credentials and connectivity</p>
+                        </div>
+                    </div>
+                @elseif($cmConnectionStatus === 'connected')
+                    <div class="flex items-center gap-2 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                        <svg class="h-5 w-5 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <div class="flex-1">
+                            <p class="text-sm font-semibold text-green-900 dark:text-green-300">✓ Connected to Campaign Monitor</p>
+                            <p class="text-xs text-green-700 dark:text-green-400">API connection active and ready to import campaigns</p>
+                        </div>
+                        <flux:badge color="green" size="sm">Live</flux:badge>
+                    </div>
+                @elseif($cmConnectionStatus === 'error')
+                    <div class="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                        <div class="flex items-start gap-2">
+                            <svg class="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold text-red-900 dark:text-red-300">Campaign Monitor Connection Error</p>
+                                <p class="text-xs text-red-700 dark:text-red-400 mt-1">{{ $cmConnectionError }}</p>
+                                <div class="mt-3">
+                                    <flux:button wire:click="checkCmConnection" size="sm" variant="ghost" icon="arrow-path">
+                                        Retry Connection
+                                    </flux:button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+            </div>
+
+            <!-- Summary Stats -->
+            @if($this->campaignSummary['total_campaigns'] > 0)
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                    <div class="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-4">
+                        <p class="text-sm text-zinc-600 dark:text-zinc-400">Total Campaigns</p>
+                        <p class="text-2xl font-bold text-zinc-900 dark:text-white">{{ number_format($this->campaignSummary['total_campaigns']) }}</p>
+                    </div>
+                    <div class="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-4">
+                        <p class="text-sm text-zinc-600 dark:text-zinc-400">Recipients</p>
+                        <p class="text-2xl font-bold text-zinc-900 dark:text-white">{{ number_format($this->campaignSummary['total_recipients']) }}</p>
+                    </div>
+                    <div class="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-4">
+                        <p class="text-sm text-zinc-600 dark:text-zinc-400">Total Opens</p>
+                        <p class="text-2xl font-bold text-zinc-900 dark:text-white">{{ number_format($this->campaignSummary['total_opens']) }}</p>
+                    </div>
+                    <div class="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-4">
+                        <p class="text-sm text-zinc-600 dark:text-zinc-400">Total Clicks</p>
+                        <p class="text-2xl font-bold text-zinc-900 dark:text-white">{{ number_format($this->campaignSummary['total_clicks']) }}</p>
+                    </div>
+                    <div class="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-4">
+                        <p class="text-sm text-zinc-600 dark:text-zinc-400">Avg Open Rate</p>
+                        <p class="text-2xl font-bold text-green-600 dark:text-green-400">{{ $this->campaignSummary['avg_open_rate'] }}%</p>
+                    </div>
+                    <div class="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-4">
+                        <p class="text-sm text-zinc-600 dark:text-zinc-400">Avg Click Rate</p>
+                        <p class="text-2xl font-bold text-blue-600 dark:text-blue-400">{{ $this->campaignSummary['avg_click_rate'] }}%</p>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="flex gap-2 mb-6">
+                    <flux:button wire:click="$set('statsFilter', 'all')" size="sm" :variant="$statsFilter === 'all' ? 'primary' : 'ghost'">
+                        All
+                    </flux:button>
+                    <flux:button wire:click="$set('statsFilter', 'high')" size="sm" :variant="$statsFilter === 'high' ? 'primary' : 'ghost'">
+                        High Engagement
+                    </flux:button>
+                    <flux:button wire:click="$set('statsFilter', 'medium')" size="sm" :variant="$statsFilter === 'medium' ? 'primary' : 'ghost'">
+                        Medium Engagement
+                    </flux:button>
+                    <flux:button wire:click="$set('statsFilter', 'low')" size="sm" :variant="$statsFilter === 'low' ? 'primary' : 'ghost'">
+                        Low Engagement
+                    </flux:button>
+                </div>
+
+                <!-- Campaign List -->
+                <div class="space-y-4">
+                    @forelse($this->cmCampaigns as $campaign)
+                        <div class="border border-zinc-200 dark:border-zinc-700 rounded-lg p-4 hover:border-zinc-300 dark:hover:border-zinc-600 transition">
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">{{ $campaign->name }}</h3>
+                                        @php
+                                            $engagementColors = [
+                                                'high' => 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
+                                                'medium' => 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300',
+                                                'low' => 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+                                            ];
+                                        @endphp
+                                        <span class="px-2 py-1 text-xs rounded-full {{ $engagementColors[$campaign->engagement_level] }}">
+                                            {{ ucfirst($campaign->engagement_level) }}
+                                        </span>
+                                    </div>
+                                    <p class="text-sm text-zinc-600 dark:text-zinc-400 mb-1">{{ $campaign->subject }}</p>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-500">
+                                        Sent: {{ $campaign->sent_at?->format('M d, Y g:i A') ?? 'N/A' }}
+                                    </p>
+                                </div>
+                                <flux:button wire:click="viewCmCampaign({{ $campaign->id }})" size="sm" variant="ghost" icon="eye">
+                                    View Details
+                                </flux:button>
+                            </div>
+
+                            <!-- Quick Stats Grid -->
+                            <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700">
+                                <div>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-400">Recipients</p>
+                                    <p class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($campaign->total_recipients) }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-400">Opens</p>
+                                    <p class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($campaign->unique_opens) }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-400">Clicks</p>
+                                    <p class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($campaign->unique_clicks) }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-400">Open Rate</p>
+                                    <p class="text-sm font-semibold text-green-600 dark:text-green-400">{{ $campaign->open_rate }}%</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-400">Click Rate</p>
+                                    <p class="text-sm font-semibold text-blue-600 dark:text-blue-400">{{ $campaign->click_rate }}%</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-zinc-500 dark:text-zinc-400">Bounces</p>
+                                    <p class="text-sm font-semibold text-red-600 dark:text-red-400">{{ number_format($campaign->total_bounces) }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="text-center py-12">
+                            <svg class="mx-auto h-12 w-12 text-zinc-400 dark:text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            <h3 class="mt-2 text-sm font-semibold text-zinc-900 dark:text-white">No campaigns imported yet</h3>
+                            <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Click "Import Campaigns" to get started</p>
+                        </div>
+                    @endforelse
+                </div>
+
+                <!-- Pagination -->
+                @if($this->cmCampaigns->hasPages())
+                    <div class="mt-6">
+                        {{ $this->cmCampaigns->links() }}
+                    </div>
+                @endif
+            @else
+                <!-- Empty State -->
+                <div class="text-center py-12">
+                    <svg class="mx-auto h-12 w-12 text-zinc-400 dark:text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <h3 class="mt-2 text-sm font-semibold text-zinc-900 dark:text-white">No campaign statistics available</h3>
+                    <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Import campaigns from Campaign Monitor to view statistics</p>
+                    <div class="mt-6">
+                        <flux:button wire:click="importCampaignStats" variant="primary" icon="arrow-down-tray">
+                            Import Campaigns from Campaign Monitor
+                        </flux:button>
+                    </div>
+                </div>
+            @endif
+        </flux:card>
+
+        <!-- Campaign Details Modal -->
+        @if($selectedCmCampaign)
+            <flux:modal wire:model="selectedCmCampaign" variant="flyout" class="max-w-2xl">
+                <flux:heading>{{ $selectedCmCampaign->name }}</flux:heading>
+                <flux:subheading>Campaign Details & Statistics</flux:subheading>
+
+                <div class="space-y-6 mt-6">
+                    <!-- Campaign Info -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-zinc-900 dark:text-white mb-2">Campaign Information</h4>
+                        <dl class="grid grid-cols-2 gap-4">
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Subject</dt>
+                                <dd class="text-sm text-zinc-900 dark:text-white">{{ $selectedCmCampaign->subject }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Sent Date</dt>
+                                <dd class="text-sm text-zinc-900 dark:text-white">{{ $selectedCmCampaign->sent_at?->format('M d, Y g:i A') }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">From</dt>
+                                <dd class="text-sm text-zinc-900 dark:text-white">{{ $selectedCmCampaign->from_name }} ({{ $selectedCmCampaign->from_email }})</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Reply To</dt>
+                                <dd class="text-sm text-zinc-900 dark:text-white">{{ $selectedCmCampaign->reply_to }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
+                    <!-- Performance Metrics -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-zinc-900 dark:text-white mb-2">Performance Metrics</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-4">
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">Total Recipients</p>
+                                <p class="text-2xl font-bold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->total_recipients) }}</p>
+                            </div>
+                            <div class="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-4">
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">Engagement Level</p>
+                                <p class="text-2xl font-bold text-zinc-900 dark:text-white">{{ ucfirst($selectedCmCampaign->engagement_level) }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Engagement Stats -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-zinc-900 dark:text-white mb-2">Engagement Statistics</h4>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">Total Opens</p>
+                                <p class="text-lg font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->total_opens) }}</p>
+                            </div>
+                            <div class="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">Unique Opens</p>
+                                <p class="text-lg font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->unique_opens) }}</p>
+                            </div>
+                            <div class="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">Total Clicks</p>
+                                <p class="text-lg font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->total_clicks) }}</p>
+                            </div>
+                            <div class="border border-zinc-200 dark:border-zinc-700 rounded-lg p-3">
+                                <p class="text-xs text-zinc-500 dark:text-zinc-400">Unique Clicks</p>
+                                <p class="text-lg font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->unique_clicks) }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rates -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-zinc-900 dark:text-white mb-2">Conversion Rates</h4>
+                        <div class="grid grid-cols-4 gap-3">
+                            <div class="text-center bg-green-50 dark:bg-green-900/20 rounded-lg p-3">
+                                <p class="text-xs text-green-600 dark:text-green-400">Open Rate</p>
+                                <p class="text-xl font-bold text-green-700 dark:text-green-300">{{ $selectedCmCampaign->open_rate }}%</p>
+                            </div>
+                            <div class="text-center bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                                <p class="text-xs text-blue-600 dark:text-blue-400">Click Rate</p>
+                                <p class="text-xl font-bold text-blue-700 dark:text-blue-300">{{ $selectedCmCampaign->click_rate }}%</p>
+                            </div>
+                            <div class="text-center bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+                                <p class="text-xs text-red-600 dark:text-red-400">Bounce Rate</p>
+                                <p class="text-xl font-bold text-red-700 dark:text-red-300">{{ $selectedCmCampaign->bounce_rate }}%</p>
+                            </div>
+                            <div class="text-center bg-orange-50 dark:bg-orange-900/20 rounded-lg p-3">
+                                <p class="text-xs text-orange-600 dark:text-orange-400">Unsub Rate</p>
+                                <p class="text-xl font-bold text-orange-700 dark:text-orange-300">{{ $selectedCmCampaign->unsubscribe_rate }}%</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Stats -->
+                    <div>
+                        <h4 class="text-sm font-semibold text-zinc-900 dark:text-white mb-2">Additional Statistics</h4>
+                        <dl class="grid grid-cols-3 gap-4 text-sm">
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Bounces</dt>
+                                <dd class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->total_bounces) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Unsubscribes</dt>
+                                <dd class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->total_unsubscribes) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Spam</dt>
+                                <dd class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->total_spam_complaints) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Forwards</dt>
+                                <dd class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->forwards) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Likes</dt>
+                                <dd class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->likes) }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-xs text-zinc-500 dark:text-zinc-400">Mentions</dt>
+                                <dd class="text-sm font-semibold text-zinc-900 dark:text-white">{{ number_format($selectedCmCampaign->mentions) }}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
+                    <!-- Web Version Links -->
+                    @if($selectedCmCampaign->web_version_url)
+                        <div>
+                            <h4 class="text-sm font-semibold text-zinc-900 dark:text-white mb-2">Links</h4>
+                            <div class="flex gap-2">
+                                <flux:button href="{{ $selectedCmCampaign->web_version_url }}" target="_blank" variant="ghost" icon="globe-alt" size="sm">
+                                    View Web Version
+                                </flux:button>
+                                @if($selectedCmCampaign->web_version_text_url)
+                                    <flux:button href="{{ $selectedCmCampaign->web_version_text_url }}" target="_blank" variant="ghost" icon="document-text" size="sm">
+                                        View Text Version
+                                    </flux:button>
+                                @endif
+                            </div>
+                        </div>
+                    @endif
+
+                    <!-- Sync Info -->
+                    <div class="pt-4 border-t border-zinc-200 dark:border-zinc-700">
+                        <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                            Last synced: {{ $selectedCmCampaign->stats_last_synced_at?->diffForHumans() ?? 'Never' }}
+                        </p>
+                    </div>
+                </div>
+
+                <flux:button wire:click="closeCmCampaignModal" class="mt-6">Close</flux:button>
+            </flux:modal>
+        @endif
     </div>
 </div>

@@ -25,7 +25,8 @@
       "Bash(awk:*)",
       "Bash(xargs kill:*)",
       "Bash(composer require:*)",
-      "Bash(composer show:*)"
+      "Bash(composer show:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []

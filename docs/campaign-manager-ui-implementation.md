@@ -11,7 +11,7 @@ A complete admin UI for managing Campaign Monitor one-off campaigns with intelli
 
 ## Features Implemented
 
-### 1. Create Campaign (Segment Builder)
+### 1. Create Campaign (Segment Builder) ✅
 
 Visual interface for building targeted user segments with multiple filters:
 
@@ -38,7 +38,7 @@ Visual interface for building targeted user segments with multiple filters:
 - Campaign for specific organization members
 - Enterprise tier users who are highly engaged
 
-### 2. Active Campaigns
+### 2. Active Campaigns ✅
 
 View and manage all currently tagged campaigns:
 
@@ -61,7 +61,7 @@ View and manage all currently tagged campaigns:
 - Shows friendly message when no campaigns exist
 - Quick link to create first campaign
 
-### 3. Quick Actions
+### 3. Quick Actions ✅
 
 Pre-built campaign templates for common scenarios:
 
@@ -84,6 +84,39 @@ Pre-built campaign templates for common scenarios:
 - No need to configure multiple filters
 - One-click campaign creation
 - Perfect for common marketing scenarios
+
+### 4. Backfill & Sync ✅
+
+Backfill historical data and sync operations:
+
+**Available Operations:**
+
+#### Sync All Users to Campaign Monitor
+- Identifies users not synced or inactive in CM
+- Dispatches background job to sync all unsynced users
+- Updates CM subscriber IDs and status
+
+**Use Case**: After importing historical users, sync them to Campaign Monitor
+
+#### Recalculate Engagement Scores
+- Recalculates engagement scores for all users
+- Uses email open/click data from webhooks
+- Marks users with changed scores for tag sync
+- Runs in background to avoid timeouts
+
+**Use Case**: After backfilling historical email engagement data, refresh all scores
+
+#### Sync All Permanent Tags
+- Marks all active users for tag synchronization
+- Syncs tier, engagement, and status tags to CM
+- Scheduled command processes batches automatically
+
+**Use Case**: After major tier changes or engagement recalculation, sync tags to CM
+
+**System Status Dashboard:**
+- Total Users count
+- Synced to CM count
+- Pending Tag Sync count
 
 ---
 
@@ -463,37 +496,73 @@ php artisan tinker
 
 ---
 
+## Current Limitations
+
+### What This UI Does NOT Do
+
+**Important**: This UI is for **tagging users in the CDP** only. It does NOT send email campaigns.
+
+**Current Workflow**:
+1. ✅ Tag users in CDP database (this UI)
+2. ❌ Switch to Campaign Monitor manually
+3. ❌ Create segment in CM using the tag
+4. ❌ Create campaign in CM
+5. ❌ Send campaign from CM
+
+**What's Missing**:
+- ❌ Cannot send campaigns from CDP interface
+- ❌ Cannot create campaigns in Campaign Monitor from UI
+- ❌ Cannot schedule campaign sends
+- ❌ Cannot send test emails
+- ❌ Cannot preview email content
+- ❌ Cannot select email templates from CDP
+- ❌ Cannot track sent campaigns automatically
+
+**Why**: Campaign creation and sending requires Campaign Monitor API integration not yet implemented.
+
+**Future Enhancement**: See `docs/send-campaigns-from-cdp.md` for planned "Send Campaigns from CDP" feature (19-20 hours estimated).
+
+---
+
 ## Future Enhancements
 
 ### Planned Features
 
-1. **Export Functionality**:
+1. **Send Campaigns from CDP** (Priority: High)
+   - Create and send campaigns directly from CDP
+   - Select Campaign Monitor templates
+   - Schedule campaign sends
+   - Send test emails
+   - Auto-track campaign statistics
+   - See: `docs/send-campaigns-from-cdp.md` for complete specification
+
+2. **Export Functionality**:
    - Download tagged user list as CSV
    - Export to Campaign Monitor directly
    - Generate segment in CM automatically
 
-2. **Campaign Templates**:
+3. **Campaign Templates**:
    - Save filter combinations as templates
    - Reuse common segment definitions
    - Share templates across team
 
-3. **Scheduling**:
+4. **Scheduling**:
    - Schedule campaign creation for future date
    - Auto-clear campaigns after X days
    - Recurring campaign schedules
 
-4. **Analytics**:
-   - Campaign performance tracking
+5. **Analytics**:
+   - Campaign performance tracking (partially implemented via Campaign Statistics tab)
    - Email open/click rates per campaign
    - ROI calculation
 
-5. **Advanced Filters**:
+6. **Advanced Filters**:
    - Event attendance (attended X event)
    - Product ownership (has premium content access)
    - Multiple organization filtering
    - Custom field filters
 
-6. **Bulk Operations**:
+7. **Bulk Operations**:
    - Clear multiple campaigns at once
    - Merge campaign tags
    - Duplicate campaigns
@@ -547,16 +616,29 @@ php artisan tinker
 ## Summary
 
 ✅ **Complete Campaign Manager UI** - Production ready
-✅ **3 Tabs** - Create, Active, Quick Actions
+✅ **4 Tabs** - Create, Active, Quick Actions, Backfill & Sync
 ✅ **Segment Builder** - 6 filter options
 ✅ **Preview Before Create** - See matching users
 ✅ **Campaign Statistics** - Detailed breakdowns
 ✅ **Quick Actions** - Pre-built templates
+✅ **Backfill Operations** - Historical data sync with background jobs
+✅ **Artisan Commands** - CLI support for engagement recalculation
 ✅ **Integrated with Backend** - Uses fully-tested services
 ✅ **Responsive Design** - Works on all devices
 ✅ **Error Handling** - User-friendly messages
 
 **No more command-line required!** All campaign features now accessible through the admin UI.
+
+### New Files Created
+
+#### Background Jobs
+- `app/Jobs/RecalculateEngagementScoresJob.php` - Recalculate engagement scores in background
+- `app/Jobs/SyncUsersToMonitorJob.php` - Sync unsynced users to Campaign Monitor
+
+#### Artisan Commands
+- `app/Console/Commands/RecalculateEngagementScores.php` - CLI command for engagement recalculation
+  - Usage: `php artisan cm:recalculate-engagement`
+  - Options: `--user-id`, `--batch-size`, `--mark-for-sync`
 
 ---
 

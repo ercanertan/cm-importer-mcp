@@ -2,17 +2,24 @@
 
 namespace App\Livewire\Admin\Campaigns;
 
+use App\Jobs\RecalculateEngagementScoresJob;
+use App\Jobs\SyncUsersToMonitorJob;
+use App\Models\CmCampaign;
 use App\Models\Organization;
 use App\Models\User;
 use App\Services\CampaignTagService;
+use App\Services\CmCampaignStatsService;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Livewire\WithPagination;
 
 class CampaignManager extends Component
 {
+    use WithPagination;
+
     // Campaign creation
     public $campaignName = '';
-    public $selectedTab = 'create'; // create, active, helper, backfill
+    public $selectedTab = 'create'; // create, active, helper, backfill, stats
 
     // Filters for segment builder
     public $tier = '';
@@ -37,6 +44,13 @@ class CampaignManager extends Component
     public $helperTier = 'paid_premium';
     public $helperThreshold = 70;
     public $helperCampaignName = '';
+
+    // Campaign stats state
+    public $importingStats = false;
+    public $statsFilter = 'all'; // all, high, medium, low
+    public $selectedCmCampaign = null;
+    public $cmConnectionStatus = null; // 'checking', 'connected', 'error'
+    public $cmConnectionError = null;
 
     protected CampaignTagService $campaignTagService;
 
@@ -216,16 +230,19 @@ class CampaignManager extends Component
     public function syncAllUsersToCm()
     {
         try {
-            $unsyncedCount = User::whereNull('cm_subscriber_id')
-                ->orWhere('cm_status', '!=', 'active')
-                ->count();
+            $unsyncedCount = User::where(function ($query) {
+                $query->whereNull('cm_subscriber_id')
+                      ->orWhere('cm_status', '!=', 'active');
+            })->count();
 
             if ($unsyncedCount === 0) {
                 session()->flash('success', 'All users are already synced to Campaign Monitor.');
                 return;
             }
 
-            // This would typically dispatch a job
+            // Dispatch background job
+            SyncUsersToMonitorJob::dispatch();
+
             session()->flash('success', "Queued {$unsyncedCount} users for sync to Campaign Monitor. This will process in the background.");
 
         } catch (\Exception $e) {
@@ -238,8 +255,15 @@ class CampaignManager extends Component
         try {
             $userCount = User::count();
 
-            // Trigger engagement score recalculation
-            session()->flash('success', "Queued engagement score recalculation for {$userCount} users. This will process in the background.");
+            if ($userCount === 0) {
+                session()->flash('success', 'No users found to recalculate.');
+                return;
+            }
+
+            // Dispatch background job with mark-for-sync enabled
+            RecalculateEngagementScoresJob::dispatch(markForSync: true);
+
+            session()->flash('success', "Queued engagement score recalculation for {$userCount} users. This will process in the background and mark changed users for tag sync.");
 
         } catch (\Exception $e) {
             session()->flash('error', 'Error queueing engagement recalculation: ' . $e->getMessage());
@@ -259,6 +283,130 @@ class CampaignManager extends Component
         } catch (\Exception $e) {
             session()->flash('error', 'Error marking users for sync: ' . $e->getMessage());
         }
+    }
+
+    // Campaign Statistics Methods
+
+    public function checkCmConnection()
+    {
+        $this->cmConnectionStatus = 'checking';
+        $this->cmConnectionError = null;
+
+        try {
+            $statsService = app(CmCampaignStatsService::class);
+
+            if (!$statsService->isConfigured()) {
+                $this->cmConnectionStatus = 'error';
+                $this->cmConnectionError = 'Campaign Monitor API credentials not configured. Please set CM_API_KEY and CM_CLIENT_ID in your .env file.';
+                return;
+            }
+
+            // Try to fetch campaigns to verify connection
+            $campaigns = $statsService->fetchAllCampaigns(1);
+
+            $this->cmConnectionStatus = 'connected';
+
+        } catch (\Exception $e) {
+            $this->cmConnectionStatus = 'error';
+            $this->cmConnectionError = 'Failed to connect to Campaign Monitor API: ' . $e->getMessage();
+        }
+    }
+
+    #[Computed]
+    public function cmCampaigns()
+    {
+        $query = CmCampaign::active()->orderBy('sent_at', 'desc');
+
+        if ($this->statsFilter !== 'all') {
+            // Filter by engagement level
+            $query->where(function ($q) {
+                $avgRate = '(open_rate + click_rate) / 2';
+
+                switch ($this->statsFilter) {
+                    case 'high':
+                        $q->whereRaw("({$avgRate}) >= 30");
+                        break;
+                    case 'medium':
+                        $q->whereRaw("({$avgRate}) >= 15 AND ({$avgRate}) < 30");
+                        break;
+                    case 'low':
+                        $q->whereRaw("({$avgRate}) < 15");
+                        break;
+                }
+            });
+        }
+
+        return $query->paginate(20);
+    }
+
+    #[Computed]
+    public function campaignSummary()
+    {
+        $campaigns = CmCampaign::active()->get();
+
+        return [
+            'total_campaigns' => $campaigns->count(),
+            'total_recipients' => $campaigns->sum('total_recipients'),
+            'total_opens' => $campaigns->sum('total_opens'),
+            'total_clicks' => $campaigns->sum('total_clicks'),
+            'avg_open_rate' => round($campaigns->avg('open_rate'), 2),
+            'avg_click_rate' => round($campaigns->avg('click_rate'), 2),
+        ];
+    }
+
+    public function importCampaignStats()
+    {
+        try {
+            $this->importingStats = true;
+
+            $statsService = app(CmCampaignStatsService::class);
+
+            if (!$statsService->isConfigured()) {
+                session()->flash('error', 'Campaign Monitor API is not configured. Please set CM_API_KEY and CM_CLIENT_ID in your .env file.');
+                $this->importingStats = false;
+                return;
+            }
+
+            // Import up to 50 most recent campaigns
+            $result = $statsService->importAllCampaigns(50);
+
+            session()->flash('success', "Imported {$result['imported']} campaigns successfully! Skipped: {$result['skipped']}, Failed: {$result['failed']}");
+
+            $this->importingStats = false;
+
+        } catch (\Exception $e) {
+            session()->flash('error', 'Error importing campaign stats: ' . $e->getMessage());
+            $this->importingStats = false;
+        }
+    }
+
+    public function syncCampaignStats()
+    {
+        try {
+            $statsService = app(CmCampaignStatsService::class);
+
+            if (!$statsService->isConfigured()) {
+                session()->flash('error', 'Campaign Monitor API is not configured.');
+                return;
+            }
+
+            $result = $statsService->syncCampaignStats(50);
+
+            session()->flash('success', "Synced {$result['synced']} campaigns successfully! Failed: {$result['failed']}");
+
+        } catch (\Exception $e) {
+            session()->flash('error', 'Error syncing campaign stats: ' . $e->getMessage());
+        }
+    }
+
+    public function viewCmCampaign($campaignId)
+    {
+        $this->selectedCmCampaign = CmCampaign::find($campaignId);
+    }
+
+    public function closeCmCampaignModal()
+    {
+        $this->selectedCmCampaign = null;
     }
 
     public function render()
