@@ -53,13 +53,20 @@ class OrganizationObserver
         app()->instance('cm.bulk_import_active', true);
 
         try {
-            // Update all users' tier field
+            // Update all users' tier field AND mark for tag sync
             $organization->users()->update([
-                'tier' => $organization->tier
+                'tier' => $organization->tier,
+                'cm_tags_need_sync' => true, // Mark for bulk tag sync
             ]);
 
-            // Queue a job to sync these users to CM
+            // Queue a job to sync these users to CM (custom fields only, not tags)
             BulkSyncOrganizationUsersJob::dispatch($organization->id, 'tier_change');
+
+            Log::info('Organization tier changed - marked users for tag sync', [
+                'organization_id' => $organization->id,
+                'affected_users' => $organization->users()->count(),
+                'sync_mode' => 'immediate',
+            ]);
 
         } finally {
             app()->forgetInstance('cm.bulk_import_active');
@@ -75,18 +82,22 @@ class OrganizationObserver
         app()->instance('cm.bulk_import_active', true);
 
         try {
-            // Update all users' tier field
+            // Update all users' tier field AND mark for tag sync
+            // This is the CRITICAL change - we mark for sync instead of syncing immediately
             $organization->users()->update([
-                'tier' => $organization->tier
+                'tier' => $organization->tier,
+                'cm_tags_need_sync' => true, // Mark for bulk tag sync (scheduled command)
             ]);
 
             // Queue bulk sync job with delay to allow DB updates to complete
             BulkSyncOrganizationUsersJob::dispatch($organization->id, 'tier_change')
                 ->delay(now()->addMinutes(1));
 
-            Log::info('Queued bulk sync for organization tier change', [
+            Log::info('Organization tier changed - marked users for tag sync', [
                 'organization_id' => $organization->id,
                 'affected_users' => $organization->users()->count(),
+                'sync_mode' => 'queued',
+                'note' => 'Tags will be synced by scheduled cm:sync-tags command',
             ]);
 
         } finally {

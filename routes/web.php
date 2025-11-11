@@ -58,6 +58,10 @@ Route::middleware(['auth'])->group(function () {
     // Admin Custom Fields Management
     Route::get('/admin/custom-fields', \App\Livewire\Admin\CustomFields\CustomFieldManager::class)
         ->name('admin.custom-fields.index');
+
+    // Admin Campaign Management
+    Route::get('/admin/campaigns', [\App\Http\Controllers\Admin\CampaignManagerController::class, 'index'])
+        ->name('admin.campaigns.index');
 });
 
 // Campaign Monitor Import Routes

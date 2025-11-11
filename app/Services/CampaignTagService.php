@@ -19,6 +19,12 @@ use Illuminate\Support\Str;
  */
 class CampaignTagService
 {
+    protected CmNamingService $namingService;
+
+    public function __construct(CmNamingService $namingService)
+    {
+        $this->namingService = $namingService;
+    }
     /**
      * Generate a unique campaign tag
      *
@@ -307,18 +313,17 @@ class CampaignTagService
      *
      * @param string $campaignName
      * @param string $description Optional description
+     * @param int|null $userCount Optional user count
      * @return string
      */
-    public function generateSegmentName(string $campaignName, ?string $description = null): string
+    public function generateSegmentName(string $campaignName, ?string $description = null, ?int $userCount = null): string
     {
-        $prefix = config('campaign-monitor.segment_prefixes.one_off', '[One-off]');
-        $date = now()->format('Y-m-d');
-
-        if ($description) {
-            return "{$prefix} {$campaignName} - {$description} ({$date})";
-        }
-
-        return "{$prefix} {$campaignName} ({$date})";
+        // Use CmNamingService for human-readable segment names
+        return $this->namingService->generateOneOffSegmentName(
+            $campaignName,
+            $description ?? $campaignName,
+            $userCount
+        );
     }
 
     /**

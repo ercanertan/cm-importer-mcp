@@ -17,7 +17,8 @@
                 </flux:navlist.group>
 
                 <flux:navlist.group :heading="__('Campaign Monitor')" class="grid">
-                    <flux:navlist.item icon="arrow-up-tray" :href="route('campaign-monitor.import')" :current="request()->routeIs('campaign-monitor.*')" wire:navigate>{{ __('Import') }}</flux:navlist.item>
+                    <flux:navlist.item icon="megaphone" :href="route('admin.campaigns.index')" :current="request()->routeIs('admin.campaigns.*')" wire:navigate>{{ __('Campaigns') }}</flux:navlist.item>
+                    <flux:navlist.item icon="arrow-up-tray" :href="route('campaign-monitor.import')" :current="request()->routeIs('campaign-monitor.import*')" wire:navigate>{{ __('Import') }}</flux:navlist.item>
                 </flux:navlist.group>
 
                 <flux:navlist.group :heading="__('Administration')" class="grid">

@@ -42,6 +42,8 @@ class User extends Authenticatable
         'last_email_clicked_at',
         'last_activity_at',
         'temp_campaign_tag',
+        'cm_tags_need_sync',      // Mark for bulk tag sync
+        'cm_tags_synced_at',      // Timestamp of last tag sync
     ];
 
     /**
@@ -69,7 +71,9 @@ class User extends Authenticatable
             'cm_subscribed_at' => 'datetime',
             'cm_unsubscribed_at' => 'datetime',
             'cm_status_changed_at' => 'datetime',
+            'cm_tags_synced_at' => 'datetime',
             'permission_to_track' => 'boolean',
+            'cm_tags_need_sync' => 'boolean',
             'engagement_score' => 'decimal:2',
             'last_email_opened_at' => 'datetime',
             'last_email_clicked_at' => 'datetime',

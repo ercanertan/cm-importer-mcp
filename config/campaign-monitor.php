@@ -169,11 +169,12 @@ return [
     // Campaign Monitor List ID (single list for all subscribers)
     'list_id' => env('CM_LIST_ID'),
 
-    // Core custom fields synced to Campaign Monitor (4 fields only)
+    // Core custom fields synced to Campaign Monitor (13 core fields)
+    // All names are human-readable for CM admins
     'core_fields' => [
         'user_id' => [
             'key' => 'user_id',
-            'name' => 'Laravel User ID',
+            'name' => 'User ID (Internal)',
             'data_type' => 'Text',
             'visible_in_preference_center' => false,
             'description' => 'Internal Laravel user ID for reliable webhook processing',
@@ -185,12 +186,75 @@ return [
             'visible_in_preference_center' => true,
             'description' => 'User\'s organization name for personalization',
         ],
-        'tier' => [
-            'key' => 'tier',
-            'name' => 'Subscription Tier',
+        'organization_tier' => [
+            'key' => 'organization_tier',
+            'name' => 'Organization Tier',
             'data_type' => 'Text',
             'visible_in_preference_center' => false,
-            'description' => 'Subscription tier (free, paid_pro, paid_premium, enterprise)',
+            'description' => 'Organization subscription tier (Free, Paid Pro, Paid Premium, Enterprise)',
+        ],
+        'tier' => [
+            'key' => 'tier',
+            'name' => 'User Tier',
+            'data_type' => 'Text',
+            'visible_in_preference_center' => false,
+            'description' => 'User subscription tier (Free, Paid Pro, Paid Premium, Enterprise)',
+        ],
+        'engagement_score' => [
+            'key' => 'engagement_score',
+            'name' => 'Engagement Score (0-100)',
+            'data_type' => 'Number',
+            'visible_in_preference_center' => false,
+            'description' => 'Calculated engagement score based on email opens, clicks, and recency',
+        ],
+        'total_opens' => [
+            'key' => 'total_opens',
+            'name' => 'Total Email Opens',
+            'data_type' => 'Number',
+            'visible_in_preference_center' => false,
+            'description' => 'Total number of emails opened by user',
+        ],
+        'total_clicks' => [
+            'key' => 'total_clicks',
+            'name' => 'Total Email Clicks',
+            'data_type' => 'Number',
+            'visible_in_preference_center' => false,
+            'description' => 'Total number of email links clicked by user',
+        ],
+        'total_bounces' => [
+            'key' => 'total_bounces',
+            'name' => 'Total Email Bounces',
+            'data_type' => 'Number',
+            'visible_in_preference_center' => false,
+            'description' => 'Total number of emails bounced',
+        ],
+        'last_email_opened_at' => [
+            'key' => 'last_email_opened_at',
+            'name' => 'Last Email Opened',
+            'data_type' => 'Date',
+            'visible_in_preference_center' => false,
+            'description' => 'Date when user last opened an email',
+        ],
+        'last_email_clicked_at' => [
+            'key' => 'last_email_clicked_at',
+            'name' => 'Last Email Clicked',
+            'data_type' => 'Date',
+            'visible_in_preference_center' => false,
+            'description' => 'Date when user last clicked an email link',
+        ],
+        'last_activity_at' => [
+            'key' => 'last_activity_at',
+            'name' => 'Last Activity Date',
+            'data_type' => 'Date',
+            'visible_in_preference_center' => false,
+            'description' => 'Date of user\'s last activity (email or platform)',
+        ],
+        'permission_to_track' => [
+            'key' => 'permission_to_track',
+            'name' => 'Tracking Permission',
+            'data_type' => 'Text',
+            'visible_in_preference_center' => true,
+            'description' => 'User consent for tracking (Granted, Denied, Not Set)',
         ],
         'temp_campaign_tag' => [
             'key' => 'temp_campaign_tag',
@@ -201,10 +265,66 @@ return [
         ],
     ],
 
-    // Segment naming prefixes for clarity in CM
+    /*
+    |--------------------------------------------------------------------------
+    | Human-Readable Naming Conventions
+    |--------------------------------------------------------------------------
+    |
+    | All Campaign Monitor elements use human-readable names so CM admins
+    | can understand everything without training or logging into Laravel.
+    |
+    */
+
+    // Segment naming prefixes (must include brackets for categorization)
     'segment_prefixes' => [
         'recurring' => '[Recurring]',
         'one_off' => '[One-off]',
+        'automated' => '[Automated]',
+        'test' => '[Test]',
+    ],
+
+    // Tag category prefixes (must include brackets for visual grouping in CM)
+    'tag_categories' => [
+        'tier' => '[Tier]',
+        'engagement' => '[Engagement]',
+        'status' => '[Status]',
+        'product' => '[Product]',
+        'event' => '[Event]',
+        'behavior' => '[Behavior]',
+        'organization' => '[Organization]',
+    ],
+
+    // Tier display names (human-readable versions)
+    'tier_names' => [
+        'free' => 'Free',
+        'paid_pro' => 'Paid Pro',
+        'paid_premium' => 'Paid Premium',
+        'enterprise' => 'Enterprise',
+    ],
+
+    // Engagement level names (for tags)
+    'engagement_levels' => [
+        'high' => 'High (70-100)',
+        'medium' => 'Medium (40-69)',
+        'low' => 'Low (0-39)',
+    ],
+
+    // Status display names
+    'status_names' => [
+        'active' => 'Active',
+        'inactive' => 'Inactive',
+        'bounced' => 'Bounced',
+        'unsubscribed' => 'Unsubscribed',
+        'spam_complaint' => 'Spam Complaint',
+    ],
+
+    // Campaign name templates (use placeholders: {category}, {description}, {date}, {count})
+    'campaign_name_templates' => [
+        'one_off' => '[{category}] {description} - {date}',
+        'one_off_with_count' => '[{category}] {description} ({count} users) [{date}]',
+        'recurring' => '[Recurring] {tier} - {frequency}',
+        'event' => '[Event] {event_name} - {description}',
+        'test' => '[Test] {description} - {date}',
     ],
 
     // Days to keep one-off segments before cleanup

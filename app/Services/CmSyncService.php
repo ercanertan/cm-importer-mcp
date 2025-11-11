@@ -199,4 +199,193 @@ class CmSyncService
             'failed' => $failed,
         ];
     }
+
+    /**
+     * Bulk import subscribers to Campaign Monitor
+     * Used by TagUsersBulkJob and ClearTagBulkJob
+     *
+     * @param array $subscribers Array of subscriber data
+     * @return array ['success' => int, 'failed' => int, 'duplicates' => int]
+     */
+    public function bulkImport(array $subscribers): array
+    {
+        if (!$this->isConfigured()) {
+            Log::warning('Campaign Monitor API not configured. Skipping bulk import.');
+            return ['success' => 0, 'failed' => count($subscribers), 'duplicates' => 0];
+        }
+
+        try {
+            $subscribersApi = new \CS_REST_Subscribers($this->listId, $this->auth);
+            $result = $subscribersApi->import($subscribers);
+
+            if (!$result->was_successful()) {
+                $errorMessage = is_object($result->response)
+                    ? json_encode($result->response)
+                    : $result->response;
+
+                throw new \Exception("Failed to bulk import subscribers: {$errorMessage}");
+            }
+
+            // Parse results
+            $totalSuccess = count($result->response->TotalNewSubscribers ?? []);
+            $totalSuccess += count($result->response->TotalExistingSubscribers ?? []);
+            $totalFailed = count($result->response->FailureDetails ?? []);
+
+            return [
+                'success' => $totalSuccess,
+                'failed' => $totalFailed,
+                'duplicates' => count($result->response->DuplicateEmailsInSubmission ?? []),
+            ];
+        } catch (\Exception $e) {
+            Log::error('Exception during bulk import to Campaign Monitor', [
+                'exception' => $e->getMessage(),
+                'subscriber_count' => count($subscribers),
+            ]);
+
+            return [
+                'success' => 0,
+                'failed' => count($subscribers),
+                'duplicates' => 0,
+            ];
+        }
+    }
+
+    /**
+     * Create a segment in Campaign Monitor
+     *
+     * @param array $segmentData Segment configuration
+     * @return string|null Segment ID if successful
+     */
+    public function createSegment(array $segmentData): ?string
+    {
+        if (!$this->isConfigured()) {
+            Log::warning('Campaign Monitor API not configured. Skipping segment creation.');
+            return null;
+        }
+
+        try {
+            $segments = new \CS_REST_Segments($this->listId, $this->auth);
+            $result = $segments->create($segmentData);
+
+            if (!$result->was_successful()) {
+                Log::error('Failed to create segment in Campaign Monitor', [
+                    'error' => $result->response,
+                    'segment_data' => $segmentData,
+                ]);
+                return null;
+            }
+
+            Log::info('Successfully created segment in Campaign Monitor', [
+                'segment_id' => $result->response,
+                'title' => $segmentData['Title'] ?? 'Unknown',
+            ]);
+
+            return $result->response; // Returns segment ID
+        } catch (\Exception $e) {
+            Log::error('Exception while creating segment in Campaign Monitor', [
+                'exception' => $e->getMessage(),
+                'segment_data' => $segmentData,
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Create a segment for a campaign tag
+     * Convenience method for the Campaign Tag Workflow
+     *
+     * @param string $campaignTag The campaign tag value
+     * @param string $title Human-readable segment title
+     * @return string|null Segment ID if successful
+     */
+    public function createCampaignTagSegment(string $campaignTag, string $title): ?string
+    {
+        return $this->createSegment([
+            'Title' => $title,
+            'RuleGroups' => [
+                [
+                    'Rules' => [
+                        [
+                            'Subject' => 'temp_campaign_tag',
+                            'Clauses' => ['EQUALS', $campaignTag]
+                        ]
+                    ]
+                ]
+            ]
+        ]);
+    }
+
+    /**
+     * Delete a segment from Campaign Monitor
+     *
+     * @param string $segmentId The segment ID to delete
+     * @return bool Success status
+     */
+    public function deleteSegment(string $segmentId): bool
+    {
+        if (!$this->isConfigured()) {
+            Log::warning('Campaign Monitor API not configured. Skipping segment deletion.');
+            return false;
+        }
+
+        try {
+            $segments = new \CS_REST_Segments($segmentId, $this->auth);
+            $result = $segments->delete();
+
+            if (!$result->was_successful()) {
+                Log::error('Failed to delete segment from Campaign Monitor', [
+                    'segment_id' => $segmentId,
+                    'error' => $result->response,
+                ]);
+                return false;
+            }
+
+            Log::info('Successfully deleted segment from Campaign Monitor', [
+                'segment_id' => $segmentId,
+            ]);
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error('Exception while deleting segment from Campaign Monitor', [
+                'segment_id' => $segmentId,
+                'exception' => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Get segment details
+     *
+     * @param string $segmentId The segment ID
+     * @return object|null Segment details if successful
+     */
+    public function getSegment(string $segmentId): ?object
+    {
+        if (!$this->isConfigured()) {
+            Log::warning('Campaign Monitor API not configured. Skipping segment retrieval.');
+            return null;
+        }
+
+        try {
+            $segments = new \CS_REST_Segments($segmentId, $this->auth);
+            $result = $segments->get();
+
+            if (!$result->was_successful()) {
+                Log::error('Failed to get segment from Campaign Monitor', [
+                    'segment_id' => $segmentId,
+                    'error' => $result->response,
+                ]);
+                return null;
+            }
+
+            return $result->response;
+        } catch (\Exception $e) {
+            Log::error('Exception while getting segment from Campaign Monitor', [
+                'segment_id' => $segmentId,
+                'exception' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
 }

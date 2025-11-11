@@ -2,12 +2,14 @@
 
 use App\Models\User;
 use App\Services\CampaignTagService;
+use App\Services\CmNamingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
-    $this->service = new CampaignTagService();
+    $namingService = new CmNamingService();
+    $this->service = new CampaignTagService($namingService);
 });
 
 // === TAG GENERATION TESTS ===
@@ -251,13 +253,13 @@ it('gets statistics for all active tags', function () {
 it('generates segment name with default prefix', function () {
     $name = $this->service->generateSegmentName('Premium Users');
 
-    expect($name)->toMatch('/^\[One-off\] Premium Users \(\d{4}-\d{2}-\d{2}\)$/');
+    expect($name)->toMatch('/^\[One-off\] Premium Users - Premium Users \[\d{4}-\d{2}-\d{2}\]$/');
 });
 
 it('generates segment name with description', function () {
     $name = $this->service->generateSegmentName('Premium Users', 'High Engagement');
 
-    expect($name)->toMatch('/^\[One-off\] Premium Users - High Engagement \(\d{4}-\d{2}-\d{2}\)$/');
+    expect($name)->toMatch('/^\[One-off\] Premium Users - High Engagement \[\d{4}-\d{2}-\d{2}\]$/');
 });
 
 // === HELPER METHODS TESTS ===

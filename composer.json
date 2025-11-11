@@ -17,6 +17,15 @@
             }
         }
     ],
+    "repositories": [
+        {
+            "type": "path",
+            "url": "./packages/livewire/flux-pro",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
     "require": {
         "php": "^8.2",
         "campaignmonitor/createsend-php": "^7.1",

@@ -86,8 +86,13 @@ Building a comprehensive Campaign Monitor integration for Laravel application wi
 - ✅ Implemented CampaignTagService
   - Tag management for bulk operations
 
-- ✅ Implemented CmSyncService
+- ✅ Implemented CmSyncService **(ENHANCED)**
   - Core sync logic for Campaign Monitor
+  - Individual user sync with field-level tracking
+  - Bulk import API integration
+  - **Segment creation/deletion/retrieval**
+  - **Campaign Tag Segment helper** (convenience method)
+  - Complete API wrapper for CM operations
 
 - ✅ Implemented EngagementMetricsService
   - Calculate user engagement scores
@@ -116,8 +121,17 @@ Building a comprehensive Campaign Monitor integration for Laravel application wi
   - Sets up custom fields in Campaign Monitor
 
 #### API Controllers
-- ✅ Created API controllers in `app/Http/Controllers/Api/`
-  - Need to verify specific endpoints
+- ✅ Created CmWebhookController **(COMPREHENSIVE)**
+  - `handleDeactivate()` - Subscriber deactivation events
+  - `handleUpdate()` - Subscriber updates
+  - `handleOpen()` - Email opens (tracks to EmailEngagement + updates user metrics)
+  - `handleClick()` - Link clicks (tracks to EmailEngagement + updates user metrics)
+  - `handleBounce()` - Email bounces (hard/soft, updates CM status)
+  - `handleUnsubscribe()` - Unsubscribe events
+  - `handleSpamComplaint()` - Spam complaint handling
+  - User lookup by user_id custom field (reliable) with email fallback
+  - Comprehensive validation and error handling
+  - Full logging for audit trail
 
 #### Tests
 - ✅ Comprehensive test coverage for:
@@ -136,6 +150,23 @@ Building a comprehensive Campaign Monitor integration for Laravel application wi
   - Explains organization tier change handling
   - Details bulk sync job implementation
   - Covers monitoring and error handling
+
+- ✅ Created 50-field-limit-solution.md **(CRITICAL)**
+  - Complete explanation of the 50 custom field limit problem
+  - 3-tier architecture (Custom Fields, Tags, Laravel DB)
+  - Field allocation strategy (13 core fields)
+  - Tag strategy for unlimited products/segments
+  - Real-world examples and migration paths
+
+- ✅ Created campaign-tag-workflow.md **(THE CORE WORKFLOW)**
+  - Complete 5-step workflow for sending campaigns to dynamic segments
+  - Uses temp_campaign_tag as "scratchpad" for targeting
+  - 25,000-user campaign in only 53 API calls (vs 25,000)
+  - Batch processing with CM Import API (1000 users/batch)
+  - Segment creation and cleanup processes
+  - Error handling and edge cases
+  - Multiple campaigns per day strategy
+  - Campaign result tracking and analytics
 
 #### Configuration
 - ✅ Updated config/campaign-monitor.php

@@ -19,7 +19,7 @@ class SetupCampaignMonitorFields extends Command
      *
      * @var string
      */
-    protected $description = 'Set up the 4 core custom fields in Campaign Monitor with admin-friendly labels';
+    protected $description = 'Set up the 13 core custom fields in Campaign Monitor with human-readable labels';
 
     /**
      * Execute the console command.
@@ -54,7 +54,7 @@ class SetupCampaignMonitorFields extends Command
         $this->info('Found ' . count($existingFields) . ' existing custom fields.');
         $this->newLine();
 
-        // Create the 4 core fields
+        // Create the 13 core fields (human-readable names from config)
         $coreFields = config('campaign-monitor.core_fields');
         $created = 0;
         $skipped = 0;

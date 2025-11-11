@@ -24,7 +24,8 @@
       "Bash(vendor/bin/pest:*)",
       "Bash(awk:*)",
       "Bash(xargs kill:*)",
-      "Bash(composer require:*)"
+      "Bash(composer require:*)",
+      "Bash(composer show:*)"
     ],
     "deny": [],
     "ask": []

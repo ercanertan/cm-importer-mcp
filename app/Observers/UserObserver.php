@@ -31,13 +31,20 @@ class UserObserver
      */
     public function updated(User $user): void
     {
-        // Only sync if not in bulk import mode
+        // Skip all sync if in bulk import mode
         if ($this->isBulkOperation()) {
             return;
         }
 
-        // Only sync if CM-relevant fields changed
-        if ($this->hasCmRelevantChanges($user)) {
+        // Check if tag-related fields changed (tier, engagement, status)
+        // Mark for bulk tag sync instead of syncing immediately
+        if ($this->hasTagRelevantChanges($user)) {
+            $this->markForTagSync($user);
+        }
+
+        // Sync custom fields immediately if they changed
+        // These are fast operations (not tags)
+        if ($this->hasCustomFieldChanges($user)) {
             $this->syncUserToCm($user, $this->getChangedCmFields($user));
         }
     }
@@ -161,6 +168,13 @@ class UserObserver
             'tier' => 'tier',
             'organization_id' => 'organization_name',
             'permission_to_track' => null, // Standard field
+            'engagement_score' => 'engagement_score',
+            'total_opens' => 'total_opens',
+            'total_clicks' => 'total_clicks',
+            'total_bounces' => 'total_bounces',
+            'last_email_opened_at' => 'last_email_opened_at',
+            'last_email_clicked_at' => 'last_email_clicked_at',
+            'last_activity_at' => 'last_activity_at',
         ];
 
         foreach ($fieldMap as $laravelField => $cmField) {
@@ -175,5 +189,85 @@ class UserObserver
         }
 
         return $changedFields;
+    }
+
+    /**
+     * Check if tag-related fields changed
+     * These fields affect permanent tags (tier, engagement, status)
+     *
+     * @param User $user
+     * @return bool
+     */
+    protected function hasTagRelevantChanges(User $user): bool
+    {
+        $tagFields = [
+            'tier',                  // Affects [Tier] tag
+            'engagement_score',      // Affects [Engagement] tag
+            'cm_status',            // Affects [Status] tag
+            'last_activity_at',     // May affect engagement category
+        ];
+
+        foreach ($tagFields as $field) {
+            if ($user->wasChanged($field)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if custom field values changed
+     * These are fast to sync individually
+     *
+     * @param User $user
+     * @return bool
+     */
+    protected function hasCustomFieldChanges(User $user): bool
+    {
+        $customFields = [
+            'organization_name',
+            'total_opens',
+            'total_clicks',
+            'total_bounces',
+            'last_email_opened_at',
+            'last_email_clicked_at',
+            'permission_to_track',
+        ];
+
+        foreach ($customFields as $field) {
+            if ($user->wasChanged($field)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Mark user for tag sync (bulk processed by scheduled command)
+     * This avoids API call storms when many users change at once
+     *
+     * @param User $user
+     */
+    protected function markForTagSync(User $user): void
+    {
+        try {
+            // Use saveQuietly to avoid triggering this observer again
+            $user->updateQuietly([
+                'cm_tags_need_sync' => true,
+            ]);
+
+            Log::debug('UserObserver: Marked user for tag sync', [
+                'user_id' => $user->id,
+                'changed_fields' => array_keys($user->getChanges()),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('UserObserver: Failed to mark user for tag sync', [
+                'user_id' => $user->id,
+                'exception' => $e->getMessage(),
+            ]);
+            // Don't throw - we don't want to block user operations
+        }
     }
 }
