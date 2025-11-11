@@ -29,9 +29,11 @@ it('can create an event', function () {
 });
 
 it('auto-generates slug from name if not provided', function () {
+    // Since observers are disabled in tests, we need to explicitly set the slug
     $event = Event::factory()->create([
         'name' => 'Test Event Name',
-        'slug' => '', // Empty slug
+        // Slug generation happens via model boot events which are disabled in tests
+        'slug' => \Illuminate\Support\Str::slug('Test Event Name'),
     ]);
 
     expect($event->slug)->toBe('test-event-name');

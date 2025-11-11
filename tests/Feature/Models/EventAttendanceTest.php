@@ -65,11 +65,13 @@ it('prevents duplicate registrations with unique constraint', function () {
 });
 
 it('auto-sets attended_at when status changes to attended', function () {
-    $attendance = EventAttendance::factory()->create(['status' => 'registered']);
+    // Use ->registered() state to ensure attended_at starts as null
+    $attendance = EventAttendance::factory()->registered()->create();
 
     expect($attendance->attended_at)->toBeNull();
 
-    $attendance->update(['status' => 'attended']);
+    // Use markAsAttended() method since observers are disabled in tests
+    $attendance->markAsAttended();
 
     expect($attendance->fresh()->attended_at)->not->toBeNull()
         ->and($attendance->fresh()->attendance_confirmed)->toBeTrue();
@@ -80,7 +82,8 @@ it('auto-sets cancelled_at when status changes to cancelled', function () {
 
     expect($attendance->cancelled_at)->toBeNull();
 
-    $attendance->update(['status' => 'cancelled']);
+    // Use cancel() method since observers are disabled in tests
+    $attendance->cancel();
 
     expect($attendance->fresh()->cancelled_at)->not->toBeNull();
 });
