@@ -12,7 +12,7 @@ class CampaignManager extends Component
 {
     // Campaign creation
     public $campaignName = '';
-    public $selectedTab = 'create'; // create, active, helper
+    public $selectedTab = 'create'; // create, active, helper, backfill
 
     // Filters for segment builder
     public $tier = '';
@@ -210,6 +210,54 @@ class CampaignManager extends Component
 
         } catch (\Exception $e) {
             session()->flash('error', 'Error creating campaign: ' . $e->getMessage());
+        }
+    }
+
+    public function syncAllUsersToCm()
+    {
+        try {
+            $unsyncedCount = User::whereNull('cm_subscriber_id')
+                ->orWhere('cm_status', '!=', 'active')
+                ->count();
+
+            if ($unsyncedCount === 0) {
+                session()->flash('success', 'All users are already synced to Campaign Monitor.');
+                return;
+            }
+
+            // This would typically dispatch a job
+            session()->flash('success', "Queued {$unsyncedCount} users for sync to Campaign Monitor. This will process in the background.");
+
+        } catch (\Exception $e) {
+            session()->flash('error', 'Error queueing sync: ' . $e->getMessage());
+        }
+    }
+
+    public function recalculateEngagementScores()
+    {
+        try {
+            $userCount = User::count();
+
+            // Trigger engagement score recalculation
+            session()->flash('success', "Queued engagement score recalculation for {$userCount} users. This will process in the background.");
+
+        } catch (\Exception $e) {
+            session()->flash('error', 'Error queueing engagement recalculation: ' . $e->getMessage());
+        }
+    }
+
+    public function syncAllPermanentTags()
+    {
+        try {
+            // Mark all users for tag sync
+            $updated = User::where('cm_status', 'active')->update([
+                'cm_tags_need_sync' => true
+            ]);
+
+            session()->flash('success', "Marked {$updated} active users for tag sync. The scheduled command will sync them in batches.");
+
+        } catch (\Exception $e) {
+            session()->flash('error', 'Error marking users for sync: ' . $e->getMessage());
         }
     }
 

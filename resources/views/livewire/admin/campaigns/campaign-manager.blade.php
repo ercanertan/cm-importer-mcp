@@ -39,6 +39,7 @@
         <flux:tab name="create" icon="plus-circle">Create Campaign</flux:tab>
         <flux:tab name="active" icon="tag">Active Campaigns</flux:tab>
         <flux:tab name="helper" icon="sparkles">Quick Actions</flux:tab>
+        <flux:tab name="backfill" icon="arrow-path">Backfill & Sync</flux:tab>
     </flux:tabs>
 
     <!-- Create Campaign Tab -->
@@ -345,6 +346,155 @@
                     <p><strong>Disengaged Users:</strong> Tags users who haven't been active recently for re-engagement campaigns.</p>
                 </div>
             </flux:card>
+        </flux:card>
+    </div>
+
+    <!-- Backfill & Sync Tab -->
+    <div x-show="$wire.selectedTab === 'backfill'" x-cloak>
+        <flux:card>
+            <flux:heading>Backfill & Data Synchronization</flux:heading>
+            <flux:subheading>Bulk operations for historical data and synchronization</flux:subheading>
+
+            <div class="mt-6 space-y-6">
+                <!-- Sync All Users to CM -->
+                <div class="p-6 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                            <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">Sync All Users to Campaign Monitor</h3>
+                            <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                                Creates or updates all user records in Campaign Monitor. This includes:
+                            </p>
+                            <ul class="mt-2 ml-4 text-sm text-zinc-600 dark:text-zinc-400 list-disc space-y-1">
+                                <li>Creates subscribers for users without cm_subscriber_id</li>
+                                <li>Updates all 13 custom fields (tier, engagement, org, etc.)</li>
+                                <li>Syncs user status (active, unsubscribed, bounced)</li>
+                                <li>Processes in background to avoid timeouts</li>
+                            </ul>
+                            <div class="mt-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-200 dark:border-yellow-800">
+                                <p class="text-sm text-yellow-800 dark:text-yellow-300">
+                                    <strong>Note:</strong> This can take several minutes for large user bases. Progress will be tracked in background jobs.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <flux:button
+                            wire:click="syncAllUsersToCm"
+                            wire:confirm="This will sync all users to Campaign Monitor. Continue?"
+                            variant="primary"
+                            icon="cloud-arrow-up"
+                        >
+                            Sync All Users to CM
+                        </flux:button>
+                    </div>
+                </div>
+
+                <!-- Recalculate Engagement Scores -->
+                <div class="p-6 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                            <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">Recalculate Engagement Scores</h3>
+                            <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                                Recalculates engagement scores (0-100) for all users based on:
+                            </p>
+                            <ul class="mt-2 ml-4 text-sm text-zinc-600 dark:text-zinc-400 list-disc space-y-1">
+                                <li><strong>Open Rate (40 pts):</strong> Based on email opens vs sends</li>
+                                <li><strong>Click Rate (40 pts):</strong> Based on email clicks vs sends</li>
+                                <li><strong>Recency (20 pts):</strong> Based on last email opened date</li>
+                            </ul>
+                            <p class="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+                                Use this after importing historical email engagement data or to refresh scores.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <flux:button
+                            wire:click="recalculateEngagementScores"
+                            wire:confirm="This will recalculate engagement scores for all users. Continue?"
+                            variant="primary"
+                            icon="calculator"
+                        >
+                            Recalculate Engagement Scores
+                        </flux:button>
+                    </div>
+                </div>
+
+                <!-- Sync Permanent Tags -->
+                <div class="p-6 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                    <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                            <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">Sync Permanent Tags for All Users</h3>
+                            <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                                Marks all active users for tag synchronization. This updates permanent tags in Campaign Monitor:
+                            </p>
+                            <ul class="mt-2 ml-4 text-sm text-zinc-600 dark:text-zinc-400 list-disc space-y-1">
+                                <li><strong>[Tier]</strong> tags: Free, Paid Pro, Paid Premium, Enterprise</li>
+                                <li><strong>[Engagement]</strong> tags: Based on current engagement score</li>
+                                <li><strong>[Status]</strong> tags: Active, Unsubscribed, Bounced</li>
+                            </ul>
+                            <p class="mt-3 text-sm text-zinc-600 dark:text-zinc-400">
+                                Users will be synced by the scheduled command (runs every 10 minutes). Processes in batches of 1000.
+                            </p>
+                            <div class="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded border border-blue-200 dark:border-blue-800">
+                                <p class="text-sm text-blue-800 dark:text-blue-300">
+                                    <strong>Efficient:</strong> Uses bulk API calls (99.8% reduction vs individual syncs)
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <flux:button
+                            wire:click="syncAllPermanentTags"
+                            wire:confirm="This will mark all active users for tag sync. Continue?"
+                            variant="primary"
+                            icon="tag"
+                        >
+                            Sync All Permanent Tags
+                        </flux:button>
+                    </div>
+                </div>
+
+                <!-- Manual Sync Command -->
+                <div class="p-6 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                    <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">Manual CLI Commands</h3>
+                    <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                        For advanced operations, you can run these commands directly:
+                    </p>
+                    <div class="mt-4 space-y-3">
+                        <div class="p-3 bg-white dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700">
+                            <code class="text-sm text-zinc-900 dark:text-zinc-100">php artisan cm:sync-tags --limit=1000</code>
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Process tag sync queue immediately</p>
+                        </div>
+                        <div class="p-3 bg-white dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700">
+                            <code class="text-sm text-zinc-900 dark:text-zinc-100">php artisan cm:setup-fields</code>
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Create/update 13 custom fields in Campaign Monitor</p>
+                        </div>
+                        <div class="p-3 bg-white dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700">
+                            <code class="text-sm text-zinc-900 dark:text-zinc-100">php artisan tinker</code>
+                            <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Advanced operations via Laravel console</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current Status -->
+                <div class="p-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <h3 class="text-lg font-semibold text-blue-900 dark:text-blue-300">Current System Status</h3>
+                    <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <p class="text-sm text-blue-600 dark:text-blue-400">Total Users</p>
+                            <p class="text-2xl font-bold text-blue-900 dark:text-blue-300">{{ number_format(\App\Models\User::count()) }}</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-blue-600 dark:text-blue-400">Synced to CM</p>
+                            <p class="text-2xl font-bold text-blue-900 dark:text-blue-300">{{ number_format(\App\Models\User::whereNotNull('cm_subscriber_id')->count()) }}</p>
+                        </div>
+                        <div>
+                            <p class="text-sm text-blue-600 dark:text-blue-400">Pending Tag Sync</p>
+                            <p class="text-2xl font-bold text-blue-900 dark:text-blue-300">{{ number_format(\App\Models\User::where('cm_tags_need_sync', true)->count()) }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </flux:card>
     </div>
 </div>
