@@ -1,7 +1,7 @@
 # CDP Project - Complete TODO List (UI-First Approach)
 
 **Last Updated:** 2025-11-12
-**Total Tasks:** 92 (reorganized with UI-first approach + campaign metrics + backfill features + job error handling)
+**Total Tasks:** 95 (reorganized with UI-first approach + campaign metrics + backfill features + job error handling + downtime recovery UI)
 **Status:** Ready to Begin
 **Tech Stack:** Laravel 12 + Livewire 3.6 + Flux Pro + Tailwind v4
 
@@ -357,7 +357,7 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
   - File: `app/Livewire/Admin/Cdp/SyncStatusDashboard.php`
   - View: `resources/views/livewire/admin/cdp/sync-status-dashboard.blade.php`
   - Route: `/admin/cdp/sync-status`
-  - Features: Live sync progress, error logs, queue health, API usage stats
+  - Features: Live sync progress, error logs, queue health, API usage stats, **CM downtime recovery**
 
 - [ ] **4.16** Build sync progress indicators
   - Cards: Last sync time, users synced, users pending, failed syncs
@@ -376,6 +376,44 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
   - Progress: Show real-time progress with job count
   - Estimate: "~60,000 users will be synced, estimated time: 15 minutes"
   - Safety: Require confirmation, prevent concurrent syncs
+
+### CM Downtime Recovery UI (NEW)
+- [ ] **4.29** Add CM API Health Check to Sync Status Dashboard
+  - File: `app/Actions/CampaignMonitor/CheckHealthAction.php`
+  - Method: `execute()` → returns ['status' => 'online/offline', 'latency' => ms, 'message']
+  - UI: Live status indicator (green dot = online, red dot = offline) with latency
+  - Auto-refresh: `wire:poll.10s` for automatic health checks
+  - Manual refresh: Button to manually trigger health check
+  - Implementation: Lightweight CM API call (e.g., getClients()) with timeout
+
+- [ ] **4.30** Build Failed Jobs List with Retry UI
+  - Data: Query Laravel's `failed_jobs` table
+  - Display: Table with job class, queue, failed time, exception, payload
+  - Columns: Job Name, Queue, Failed At, Error Preview, User/Campaign ID, Actions
+  - Pagination: 20 jobs per page
+  - Filters: By queue (cm-sync, cm-campaigns, cm-cleanup), by date range
+  - Empty state: "No failed jobs" with green checkmark when queue is healthy
+
+- [ ] **4.31** Add Individual & Bulk Retry Buttons
+  - Individual retry: "Retry" button per job → calls `Artisan::call('queue:retry', ['id' => [$jobId]])`
+  - Bulk retry: "Retry All Failed Jobs" button → calls `Artisan::call('queue:retry', ['id' => ['all']])`
+  - Confirmation: Modal confirming retry count (e.g., "Retry 47 failed jobs?")
+  - Progress: Show toast notification "X jobs queued for retry"
+  - Real-time update: Auto-refresh job list after retry
+
+- [ ] **4.32** Create Job Detail Modal
+  - Trigger: Click "View" button on any failed job
+  - Display: Full job details (class, queue, failed_at, exception stack trace, payload JSON)
+  - Payload parsing: Extract user_id, campaign_id, etc. from JSON for readability
+  - Actions: Retry, Delete buttons in modal footer
+  - Layout: Use Flux modal component
+
+- [ ] **4.33** Add Queue Statistics Cards
+  - Cards: Pending Jobs, Processing Jobs, Failed Jobs (with counts)
+  - Breakdown: Show counts per queue (cm-sync, cm-campaigns, cm-cleanup, webhooks)
+  - Color coding: Green (0 failed), Yellow (1-10 failed), Red (10+ failed)
+  - Real-time: `wire:poll.10s` for live updates
+  - Click-through: Click card to filter job list by queue
 
 ### Campaign Metrics Import & Storage
 - [ ] **4.19** Create campaign_metrics table migration
@@ -747,14 +785,14 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 
 ## 📈 TASK SUMMARY BY TYPE
 
-### UI/Frontend (Livewire + Flux) - 34 tasks
-**Admin UI:** 1.5-1.7, 1.8-1.10, 2.4-2.6, 2.9-2.10, 3.4-3.12, 4.15-4.18, 4.28, 5.5-5.16, 6.22
+### UI/Frontend (Livewire + Flux) - 39 tasks
+**Admin UI:** 1.5-1.7, 1.8-1.10, 2.4-2.6, 2.9-2.10, 3.4-3.12, 4.15-4.18, 4.28, **4.29-4.33**, 5.5-5.16, 6.22
 **User-Facing UI:** 1.11-1.12, 2.7-2.8
 **Navigation:** 1.13-1.14
 
-### Backend (Models, Services, Jobs) - 38 tasks
+### Backend (Models, Services, Jobs) - 39 tasks
 **Models:** 1.1-1.4, 2.1, 3.1, 5.1-5.2
-**Services:** 2.2, 3.2-3.3, 4.2, 4.4, 4.10, 4.14, 4.20
+**Services:** 2.2, 3.2-3.3, 4.2, 4.4, 4.10, 4.14, 4.20, **4.29 (CheckHealthAction)**
 **Jobs:** 2.3, 4.5-4.6, 4.9, 4.11-4.12, 4.21, 4.25-4.27, 5.3
 **Events/Listeners:** 4.7-4.8
 **Webhooks:** 4.13
@@ -770,6 +808,9 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 
 ### Job Error Handling & Recovery - 5 tasks
 4.24-4.28
+
+### CM Downtime Recovery UI - 5 tasks (NEW)
+4.29-4.33
 
 ### Testing - 5 tasks
 6.7-6.11
@@ -813,8 +854,9 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 2. Tasks 4.13-4.14 (Webhooks)
 3. Tasks 4.19-4.23 (Campaign metrics import)
 4. Tasks 4.24-4.28 (Job error handling)
-5. Tasks 5.1-5.4 (Recurring backend)
-6. Tasks 5.5-5.7 (Template UI)
+5. **Tasks 4.29-4.33 (Downtime recovery UI)**
+6. Tasks 5.1-5.4 (Recurring backend)
+7. Tasks 5.5-5.7 (Template UI)
 
 ### Week 5: Campaign Builder
 1. Tasks 5.8-5.12 (Campaign wizard)
@@ -852,24 +894,26 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 - **Phase 1:** 48 hours (14 tasks × ~3.5h avg)
 - **Phase 2:** 36 hours (10 tasks × ~3.6h avg)
 - **Phase 3:** 40 hours (12 tasks × ~3.3h avg)
-- **Phase 4:** 94 hours (28 tasks × ~3.4h avg) - includes campaign metrics + job error handling
+- **Phase 4:** 109 hours (33 tasks × ~3.3h avg) - includes campaign metrics + job error handling + downtime recovery UI
 - **Phase 5:** 56 hours (16 tasks × ~3.5h avg)
 - **Phase 6:** 66 hours (22 tasks × ~3.0h avg) - includes backfill & re-sync tools
 
-**Total: ~340 hours (~14-15 weeks at 24 hours/week)**
+**Total: ~355 hours (~15 weeks at 24 hours/week)**
 
 **New Features Added:**
 - Campaign Metrics Import & Storage: +18 hours (Tasks 4.19-4.23)
 - Job Failure Handling & Recovery: +12 hours (Tasks 4.24-4.28)
+- **CM Downtime Recovery UI: +15 hours (Tasks 4.29-4.33)**
 - Backfill & Data Quality Tools: +14 hours (Tasks 6.19-6.22)
 
 ---
 
 ## 📚 RELATED DOCUMENTS
 
-- **Project Plan:** `/Users/ee/Sites/mcp-imports/CDP_PROJECT_PLAN.md`
-- **Workflows Guide:** `/Users/ee/Sites/mcp-imports/CDP_WORKFLOWS.md`
-- **UI Specifications:** `/Users/ee/Sites/mcp-imports/CDP_UI_SPECIFICATIONS.md` (to be created)
+- **Project Plan:** `CDP_PROJECT_PLAN.md`
+- **Workflows Guide:** `CDP_WORKFLOWS.md`
+- **UI Specifications:** `CDP_UI_SPECIFICATIONS.md`
+- **Downtime Recovery Plan:** `CDP_DOWNTIME_RECOVERY.md` ⭐ NEW
 
 ---
 
