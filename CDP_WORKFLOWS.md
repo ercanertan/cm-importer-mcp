@@ -1,10 +1,11 @@
-# CDP Campaign Workflows - Implementation Guide
+# CDP Campaign Workflows - Implementation Guide (UI-First)
 
 **Date Created:** 2025-11-12
-**Document Version:** 1.0
+**Document Version:** 2.0
 **Status:** Ready for Implementation
+**Tech Stack:** Laravel 12 + Livewire 3.6 + Flux Pro + Tailwind v4
 
-This document details the three core workflows for the B2B Multi-Org CDP with Campaign Monitor integration.
+This document details the three core workflows for the B2B Multi-Org CDP with Campaign Monitor integration, with comprehensive UI/UX specifications for every user-facing action.
 
 ---
 
@@ -208,6 +209,311 @@ Daily average: ~3 API calls/day
 ✅ **Conditional logic**: Only send if conditions met (new content, etc.)
 ✅ **Full audit trail**: Every send tracked in CDP database
 ✅ **Zero segmentation API calls**: Segments always current
+
+---
+
+### UI WORKFLOW: Campaign Template Management
+
+#### Component: CampaignTemplateManager (Livewire)
+**Route:** `/admin/cdp/campaign-templates`
+**File:** `app/Livewire/Admin/Cdp/CampaignTemplateManager.php`
+
+#### Visual Elements
+
+**Page Header (Flux Components):**
+```blade
+<flux:header>
+    <flux:heading>Recurring Campaign Templates</flux:heading>
+    <flux:subheading>Manage automated tier-based email campaigns</flux:subheading>
+    <flux:button wire:click="openCreateModal" icon="plus">
+        Create Template
+    </flux:button>
+</flux:header>
+```
+
+**Stats Cards (Dark Mode Compatible):**
+```blade
+<div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <!-- Active Templates -->
+    <div class="bg-white dark:bg-zinc-800 rounded-lg p-6 border border-neutral-200 dark:border-neutral-700">
+        <div class="text-sm text-gray-600 dark:text-gray-400">Active Templates</div>
+        <div class="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+            {{ $activeTemplatesCount }}
+        </div>
+        <div class="text-xs text-green-600 dark:text-green-400 mt-1">
+            {{ $scheduledToday }} scheduled today
+        </div>
+    </div>
+
+    <!-- Campaigns Sent (This Month) -->
+    <div class="bg-white dark:bg-zinc-800 rounded-lg p-6 border border-neutral-200 dark:border-neutral-700">
+        <div class="text-sm text-gray-600 dark:text-gray-400">Sent This Month</div>
+        <div class="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+            {{ $campaignsSentMonth }}
+        </div>
+        <div class="text-xs text-blue-600 dark:text-blue-400 mt-1">
+            {{ $avgRecipientsMonth }} avg recipients
+        </div>
+    </div>
+
+    <!-- Next Scheduled Send -->
+    <div class="bg-white dark:bg-zinc-800 rounded-lg p-6 border border-neutral-200 dark:border-neutral-700">
+        <div class="text-sm text-gray-600 dark:text-gray-400">Next Send</div>
+        <div class="text-xl font-semibold text-gray-900 dark:text-white mt-2">
+            {{ $nextScheduledTime }}
+        </div>
+        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {{ $nextScheduledTemplate }}
+        </div>
+    </div>
+
+    <!-- Total Recipients -->
+    <div class="bg-white dark:bg-zinc-800 rounded-lg p-6 border border-neutral-200 dark:border-neutral-700">
+        <div class="text-sm text-gray-600 dark:text-gray-400">Total Recipients</div>
+        <div class="text-3xl font-bold text-gray-900 dark:text-white mt-2">
+            {{ number_format($totalRecipients) }}
+        </div>
+        <div class="text-xs text-purple-600 dark:text-purple-400 mt-1">
+            across all tiers
+        </div>
+    </div>
+</div>
+```
+
+**Template List Table:**
+```blade
+<div class="bg-white dark:bg-zinc-800 rounded-lg border border-neutral-200 dark:border-neutral-700">
+    <table class="w-full">
+        <thead class="bg-gray-50 dark:bg-zinc-900 border-b border-neutral-200 dark:border-neutral-700">
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Template</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Type</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Schedule</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Next Send</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Last Sent</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Status</th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-neutral-200 dark:divide-neutral-700">
+            @forelse($templates as $template)
+                <tr class="hover:bg-gray-50 dark:hover:bg-zinc-900/50" wire:key="template-{{ $template->id }}">
+                    <td class="px-6 py-4">
+                        <div class="text-sm font-medium text-gray-900 dark:text-white">
+                            {{ $template->name }}
+                        </div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">
+                            {{ $template->subject }}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full
+                            {{ $template->type === 'daily_newsletter' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' : '' }}
+                            {{ $template->type === 'weekly_digest' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : '' }}
+                            {{ $template->type === 'monthly_report' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' : '' }}">
+                            {{ ucwords(str_replace('_', ' ', $template->type)) }}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-900 dark:text-white">
+                        {{ $template->schedule_display }}
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="text-sm text-gray-900 dark:text-white">
+                            {{ $template->next_send_at?->format('M d, Y') }}
+                        </div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">
+                            {{ $template->next_send_at?->format('h:i A') }}
+                        </div>
+                        <div class="text-xs text-blue-600 dark:text-blue-400 mt-1" wire:poll.30s>
+                            {{ $template->time_until_send }}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
+                        {{ $template->last_sent_at?->diffForHumans() ?? 'Never' }}
+                    </td>
+                    <td class="px-6 py-4">
+                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full
+                            {{ $template->is_active ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300' }}">
+                            {{ $template->is_active ? 'Active' : 'Paused' }}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-right space-x-2">
+                        <flux:button size="sm" variant="ghost" wire:click="editTemplate({{ $template->id }})">Edit</flux:button>
+                        <flux:button size="sm" variant="ghost" wire:click="toggleStatus({{ $template->id }})">
+                            {{ $template->is_active ? 'Pause' : 'Resume' }}
+                        </flux:button>
+                        <flux:button size="sm" variant="primary" wire:click="sendNow({{ $template->id }})">Send Now</flux:button>
+                    </td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="7" class="px-6 py-12 text-center">
+                        <div class="text-gray-400 dark:text-gray-500">
+                            <svg class="mx-auto h-12 w-12 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                            </svg>
+                            <p class="text-sm font-medium">No campaign templates yet</p>
+                            <p class="text-xs mt-1">Create your first recurring campaign template to get started</p>
+                            <flux:button class="mt-4" wire:click="openCreateModal">Create Template</flux:button>
+                        </div>
+                    </td>
+                </tr>
+            @endforelse
+        </tbody>
+    </table>
+</div>
+```
+
+**Create/Edit Template Modal (Custom Tailwind, not Flux modal):**
+```blade
+@if($showTemplateModal)
+<div class="fixed z-50 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <!-- Backdrop -->
+        <div class="fixed inset-0 bg-gray-500 dark:bg-black bg-opacity-75 dark:bg-opacity-50 transition-opacity" wire:click="closeModal"></div>
+
+        <!-- Modal -->
+        <div class="inline-block align-bottom bg-white dark:bg-zinc-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full border border-neutral-200 dark:border-neutral-700">
+            <div class="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
+                <h3 class="text-lg font-medium text-gray-900 dark:text-white">
+                    {{ $editingTemplate ? 'Edit Template' : 'Create Recurring Campaign Template' }}
+                </h3>
+            </div>
+
+            <div class="px-6 py-4 space-y-4">
+                <!-- Template Name -->
+                <div>
+                    <flux:input
+                        wire:model.live.debounce.500ms="form.name"
+                        label="Template Name"
+                        placeholder="e.g., Daily Pro Newsletter"
+                        required />
+                    @error('form.name') <p class="text-xs text-red-600 dark:text-red-400 mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                <!-- Type Selection -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Campaign Type</label>
+                    <div class="grid grid-cols-3 gap-3">
+                        <button type="button" wire:click="$set('form.type', 'daily_newsletter')"
+                            class="p-4 border-2 rounded-lg transition
+                            {{ $form['type'] === 'daily_newsletter' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-neutral-200 dark:border-neutral-700 hover:border-blue-300' }}">
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">Daily</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">Newsletter</div>
+                        </button>
+                        <button type="button" wire:click="$set('form.type', 'weekly_digest')"
+                            class="p-4 border-2 rounded-lg transition
+                            {{ $form['type'] === 'weekly_digest' ? 'border-green-500 bg-green-50 dark:bg-green-900/20' : 'border-neutral-200 dark:border-neutral-700 hover:border-green-300' }}">
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">Weekly</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">Digest</div>
+                        </button>
+                        <button type="button" wire:click="$set('form.type', 'monthly_report')"
+                            class="p-4 border-2 rounded-lg transition
+                            {{ $form['type'] === 'monthly_report' ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20' : 'border-neutral-200 dark:border-neutral-700 hover:border-purple-300' }}">
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">Monthly</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">Report</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Schedule Configuration -->
+                <div class="grid grid-cols-2 gap-4">
+                    @if($form['type'] === 'daily_newsletter')
+                        <flux:input type="time" wire:model="form.send_time" label="Send Time" required />
+                    @elseif($form['type'] === 'weekly_digest')
+                        <flux:select wire:model="form.day_of_week" label="Day of Week" required>
+                            <option value="1">Monday</option>
+                            <option value="2">Tuesday</option>
+                            <option value="3">Wednesday</option>
+                            <option value="4">Thursday</option>
+                            <option value="5">Friday</option>
+                        </flux:select>
+                        <flux:input type="time" wire:model="form.send_time" label="Send Time" required />
+                    @elseif($form['type'] === 'monthly_report')
+                        <flux:input type="number" wire:model="form.day_of_month" label="Day of Month" min="1" max="28" required />
+                        <flux:input type="time" wire:model="form.send_time" label="Send Time" required />
+                    @endif
+                </div>
+
+                <!-- Target Tiers -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Target Tiers</label>
+                    <div class="space-y-2">
+                        @foreach($tiers as $tier)
+                            <flux:checkbox wire:model="form.tier_ids" value="{{ $tier->id }}">
+                                <span class="inline-flex items-center">
+                                    {{ $tier->name }}
+                                    <span class="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                                        ({{ $tier->organizations_count }} orgs)
+                                    </span>
+                                </span>
+                            </flux:checkbox>
+                        @endforeach
+                    </div>
+                </div>
+
+                <!-- Subject Line -->
+                <flux:input wire:model="form.subject" label="Email Subject" placeholder="Will append date automatically" required />
+
+                <!-- Campaign Monitor Template ID -->
+                <flux:input wire:model="form.cm_template_id" label="Campaign Monitor Template ID" required />
+
+                <!-- Preview Next Sends -->
+                @if($form['type'] && $form['send_time'])
+                    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                        <h4 class="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">Next 5 Scheduled Sends:</h4>
+                        <ul class="text-xs text-blue-700 dark:text-blue-400 space-y-1">
+                            @foreach($this->previewSchedule() as $date)
+                                <li>• {{ $date }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            </div>
+
+            <div class="px-6 py-4 bg-gray-50 dark:bg-zinc-900 border-t border-neutral-200 dark:border-neutral-700 flex justify-end space-x-3">
+                <flux:button variant="ghost" wire:click="closeModal">Cancel</flux:button>
+                <flux:button variant="primary" wire:click="saveTemplate" wire:loading.attr="disabled">
+                    <span wire:loading.remove wire:target="saveTemplate">{{ $editingTemplate ? 'Update' : 'Create' }} Template</span>
+                    <span wire:loading wire:target="saveTemplate">Saving...</span>
+                </flux:button>
+            </div>
+        </div>
+    </div>
+</div>
+@endif
+```
+
+#### Real-Time Features
+
+1. **Live Countdown Timer:** `wire:poll.30s` updates "time until send"
+2. **Stats Auto-Refresh:** `wire:poll.60s` on stats cards
+3. **Instant Pause/Resume:** Toggle status without page reload
+4. **Send Now Action:** Immediate campaign dispatch with confirmation modal
+
+#### User Actions Flow
+
+1. **Create Template:**
+   - Click "Create Template" → Modal opens
+   - Select type → Schedule fields appear
+   - Select tiers → See preview of next 5 sends
+   - Enter CM template ID → Save
+   - Flash success message → Template appears in list
+
+2. **Edit Template:**
+   - Click "Edit" → Modal opens with pre-filled data
+   - Modify fields → See updated schedule preview
+   - Save → List updates instantly
+
+3. **Pause/Resume:**
+   - Click "Pause" → Status changes to yellow "Paused"
+   - Scheduler skips this template
+   - Click "Resume" → Status returns to green "Active"
+
+4. **Send Now (Manual Trigger):**
+   - Click "Send Now" → Confirmation modal
+   - "Send to 2,345 Pro/Enterprise users now?"
+   - Confirm → Job dispatched → Success toast → Campaign tracked
 
 ---
 
