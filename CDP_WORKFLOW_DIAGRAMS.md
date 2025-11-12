@@ -20,6 +20,9 @@ This document contains all workflow diagrams for the B2B Multi-Org CDP system wi
 7. [Database Schema ERD](#database-schema-erd)
 8. [Queue Architecture](#queue-architecture)
 9. [Livewire Component Interaction](#livewire-component-interaction)
+10. [Campaign Metrics Fetch Workflow](#campaign-metrics-fetch-workflow)
+11. [Backfill Operations Architecture](#backfill-operations-architecture)
+12. [Re-Sync Tool Workflow](#re-sync-tool-workflow)
 
 ---
 
@@ -1347,6 +1350,900 @@ PRODUCTION REQUIREMENT: ALL 5 indexes MUST be created before launch
 
 ---
 
-**Document Status:** Historical Reference - Updated with Product Filtering Workflows
+## Campaign Metrics Fetch Workflow
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│         CAMPAIGN METRICS SYNCHRONIZATION (HYBRID APPROACH)        │
+│         Webhook (Real-time) + Polling (Hourly) + Historical      │
+└───────────────────────────────────────────────────────────────────┘
+
+WEBHOOK FLOW (Real-time - as events occur)
+─────────────────────────────────────────
+
+CAMPAIGN MONITOR          WEBHOOK HANDLER                CDP DATABASE
+────────────────          ───────────────                ────────────
+
+Email Sent
+  ├─ User opens email
+  │       │
+  │       └──► POST /webhooks/cm ─────────►  Verify signature
+  │           {                                    │
+  │             event: 'open',                     ▼
+  │             campaign_id: 'ABC123',      HandleCampaignMetric
+  │             email: 'user@...',          WebhookJob
+  │             timestamp: '...'            Queue: webhooks
+  │           }                             Delay: ~1-2s
+  │                                                │
+  │                                                ├──► Find campaign
+  │                                                │    WHERE cm_campaign_id
+  │                                                │    = 'ABC123'
+  │                                                │
+  │                                                ├──► Upsert to
+  │                                                │    campaign_metrics
+  │                                                │    table
+  │                                                │    (date = today)
+  │                                                │    INCREMENT opens
+  │                                                │
+  │                                                └──► Refresh Campaign
+  │                                                     model aggregates
+  │                                                     opens_count++
+  │
+  ├─ User clicks link
+  │       │
+  │       └──► POST /webhooks/cm ─────────►  (Same flow as above)
+  │           { event: 'click', ... }        INCREMENT clicks
+  │
+  └─ User unsubscribes
+          │
+          └──► POST /webhooks/cm ─────────►  (Same flow as above)
+              { event: 'unsubscribe', ... }  INCREMENT unsubscribes
+
+
+POLLING FLOW (Hourly scheduled job for validation & gap-filling)
+─────────────────────────────────────────────────────────────────
+
+TIME            SCHEDULER                    CM API                   DATABASE
+────            ─────────                    ──────                   ────────
+
+Every Hour  ►  FetchCampaignMetricsJob
+(0:00)         Queue: cm-sync
+               Tries: 3
+               Timeout: 180s
+                       │
+                       ├──► 1. Get campaigns sent in last 24h
+                       │    Campaigns::where('sent_at', '>=', now()->subDay())
+                       │              ->whereNotNull('cm_campaign_id')
+                       │              ->get()
+                       │    Result: 4 campaigns
+                       │
+                       ├──► 2. Fetch summary for each ──────────►  GET /campaigns/
+                       │    (Batch process 10 at a time)             {cm_id}/summary
+                       │                                             {
+                       │                                               TotalOpens: 156
+                       │                                               UniqueOpens: 98
+                       │                                               Clicks: 42
+                       │                                               UniqueClicks: 28
+                       │                                               Bounces: 3
+                       │                                               Unsubscribed: 1
+                       │    ◄───────────────────────────────────────  SpamComplaints: 0
+                       │                                             }
+                       │
+                       ├──► 3. Upsert to campaign_metrics ──────►  campaign_metrics
+                       │    CampaignMetric::updateOrCreate(        table
+                       │      ['campaign_id' => $id,                INSERT/UPDATE
+                       │       'date' => today()],                  daily record
+                       │      [
+                       │        'opens' => 156,
+                       │        'unique_opens' => 98,
+                       │        'clicks' => 42,
+                       │        'unique_clicks' => 28,
+                       │        'bounces' => 3,
+                       │        'unsubscribes' => 1,
+                       │        'spam_reports' => 0,
+                       │      ]
+                       │    )
+                       │
+                       └──► 4. Refresh Campaign model ────────────►  campaigns table
+                            $campaign->refreshMetrics()             UPDATE aggregates
+                            • Sum all metrics records               opens_count
+                            • Calculate rates                       clicks_count
+                            • Update last_metrics_sync              last_metrics_sync
+
+
+HISTORICAL IMPORT (One-time command for backfilling)
+─────────────────────────────────────────────────────
+
+ARTISAN CLI              COMMAND HANDLER               CM API           DATABASE
+───────────              ───────────────               ──────           ────────
+
+$ php artisan
+  cdp:import-
+  historical-
+  campaign-
+  metrics
+      │
+      │ --from=2024-01-01
+      │ --to=2025-11-12
+      │
+      ▼
+ImportHistorical
+CampaignMetrics
+Command
+      │
+      ├──► 1. Get all campaigns in date range
+      │    Campaigns::whereBetween('sent_at', [$from, $to])
+      │              ->whereNotNull('cm_campaign_id')
+      │              ->get()
+      │    Result: 482 campaigns
+      │
+      ├──► 2. Show confirmation
+      │    │
+      │    │  "Found 482 campaigns"
+      │    │  "This will make ~482 API calls"
+      │    │  "Estimated time: 16 minutes"
+      │    │  "Continue? (yes/no)"
+      │    │
+      │    └──► User confirms: yes
+      │
+      ├──► 3. Process with progress bar
+      │    ProgressBar::start(482)
+      │         │
+      │         │ Loop through campaigns (batch 10)
+      │         │
+      │         ├──► Fetch from CM API ────────────────►  GET /campaigns/
+      │         │    (10 concurrent requests)               {cm_id}/summary
+      │         │                                           (x10 parallel)
+      │         │                                                │
+      │         │    ◄─────────────────────────────────────────┘
+      │         │    10 summary responses
+      │         │
+      │         ├──► Batch insert to DB ──────────────────►  campaign_metrics
+      │         │    CampaignMetric::upsert([               table
+      │         │      [...10 records...],                  BULK INSERT
+      │         │      ['campaign_id', 'date'],             (faster)
+      │         │      ['opens', 'clicks', ...]
+      │         │    ])
+      │         │
+      │         └──► ProgressBar::advance(10)
+      │              [=========>          ] 48/482
+      │
+      └──► 4. Final summary
+           │
+           │  ✓ Imported 482 campaigns
+           │  ✓ Created 482 metric records
+           │  ✓ API calls: 482
+           │  ✓ Duration: 14m 32s
+           │  ✓ Errors: 0
+
+
+┌───────────────────────────────────────────────────────────────────┐
+│                    DATABASE SCHEMA ADDITION                       │
+├───────────────────────────────────────────────────────────────────┤
+│  campaign_metrics table                                           │
+│  ├─ id (PK)                                                       │
+│  ├─ campaign_id (FK) → campaigns.id                              │
+│  ├─ date (Date) - Metrics grouped by date                        │
+│  ├─ opens (Integer)                                               │
+│  ├─ unique_opens (Integer)                                        │
+│  ├─ clicks (Integer)                                              │
+│  ├─ unique_clicks (Integer)                                       │
+│  ├─ bounces (Integer)                                             │
+│  ├─ unsubscribes (Integer)                                        │
+│  ├─ spam_reports (Integer)                                        │
+│  ├─ created_at (Timestamp)                                        │
+│  └─ updated_at (Timestamp)                                        │
+│                                                                   │
+│  Indexes:                                                         │
+│  ├─ PRIMARY KEY (id)                                              │
+│  ├─ INDEX idx_campaign_date (campaign_id, date) ← CRITICAL       │
+│  └─ INDEX idx_date (date)                                         │
+└───────────────────────────────────────────────────────────────────┘
+
+
+┌───────────────────────────────────────────────────────────────────┐
+│                  CAMPAIGNS TABLE ENHANCEMENTS                     │
+├───────────────────────────────────────────────────────────────────┤
+│  New fields added to campaigns table:                             │
+│  ├─ opens_count (Integer) - Aggregate from campaign_metrics      │
+│  ├─ unique_opens_count (Integer)                                  │
+│  ├─ clicks_count (Integer)                                        │
+│  ├─ unique_clicks_count (Integer)                                 │
+│  ├─ bounce_count (Integer)                                        │
+│  ├─ unsubscribe_count (Integer)                                   │
+│  └─ last_metrics_sync (Timestamp)                                 │
+│                                                                   │
+│  Computed attributes (calculated on-demand):                      │
+│  ├─ open_rate (%) = (unique_opens / recipient_count) * 100       │
+│  ├─ click_rate (%) = (unique_clicks / recipient_count) * 100     │
+│  └─ click_to_open_rate (%) = (unique_clicks / unique_opens)*100  │
+└───────────────────────────────────────────────────────────────────┘
+
+
+┌───────────────────────────────────────────────────────────────────┐
+│                    API USAGE IMPACT ANALYSIS                      │
+├───────────────────────────────────────────────────────────────────┤
+│  Without metrics polling (current baseline):                     │
+│  └─ ~478 calls/month                                              │
+│                                                                   │
+│  With hourly polling (24 campaigns/day average):                 │
+│  ├─ Hourly job: 24 campaigns × 24 hours = 576 calls/day          │
+│  ├─ Monthly: 576 × 30 = 17,280 calls/month                       │
+│  └─ New total: 17,758 calls/month (+3,609% increase) ⚠️          │
+│                                                                   │
+│  OPTIMIZATION: Reduce polling to every 2-4 hours                  │
+│  ├─ Every 2 hours: 24 campaigns × 12 polls = 288 calls/day       │
+│  ├─ Monthly: 288 × 30 = 8,640 calls/month                        │
+│  └─ New total: 9,118 calls/month (+1,806% increase)              │
+│                                                                   │
+│  Recommended approach:                                            │
+│  ├─ Use webhooks as primary source (real-time, 0 API calls)      │
+│  ├─ Poll every 4 hours for validation (216 calls/day)            │
+│  └─ Monthly: 6,958 calls/month (+1,355% increase)                │
+│                                                                   │
+│  Historical import (one-time):                                   │
+│  └─ ~500 campaigns = 500 API calls (one-time cost)               │
+└───────────────────────────────────────────────────────────────────┘
+
+
+UI INTEGRATION (CampaignDetail Component)
+─────────────────────────────────────────
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Campaign Detail View                                           │
+│  /admin/cdp/campaigns/{id}                                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Campaign: "Weekly Newsletter - Nov 12, 2025"                  │
+│  Status: Sent ✓    Sent: Nov 12, 2025 8:00 AM                 │
+│  Recipients: 2,345                                              │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Performance Metrics          Last updated: 2 min ago    │  │
+│  ├──────────────────────────────────────────────────────────┤  │
+│  │                                                           │  │
+│  │  Opens                      Clicks                       │  │
+│  │  ─────────                  ──────────                   │  │
+│  │  156 (98 unique)            42 (28 unique)               │  │
+│  │  Open Rate: 4.2%            Click Rate: 1.2%             │  │
+│  │                             Click-to-Open: 28.6%         │  │
+│  │                                                           │  │
+│  │  Bounces        Unsubscribes       Spam Reports          │  │
+│  │  ────────       ────────────       ────────────          │  │
+│  │  3 (0.13%)      1 (0.04%)          0 (0.00%)            │  │
+│  │                                                           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  [View in Campaign Monitor] [Re-Sync Metrics]                  │
+└─────────────────────────────────────────────────────────────────┘
+
+wire:poll.30s (auto-refresh every 30 seconds for recent campaigns)
+```
+
+---
+
+## Backfill Operations Architecture
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│              BACKFILL OPERATIONS SYSTEM ARCHITECTURE              │
+│              (Historical Data Synchronization & Validation)        │
+└───────────────────────────────────────────────────────────────────┘
+
+OPERATION #1: Backfill Activity Scores
+───────────────────────────────────────
+
+SCENARIO: System launched with activity tracking disabled.
+          Need to calculate historical scores from existing data.
+
+ARTISAN CLI          COMMAND HANDLER               DATABASE           SERVICES
+───────────          ───────────────               ────────           ────────
+
+$ php artisan
+  cdp:backfill-
+  activity-scores
+      │
+      │ --from=2024-01-01
+      │ --to=2025-11-12
+      │ --batch=1000
+      │
+      ▼
+BackfillActivity
+ScoresCommand
+      │
+      ├──► 1. Show analysis
+      │    │
+      │    │  Analyzing date range...
+      │    │  ├─ Users: 60,000
+      │    │  ├─ Date range: 2024-01-01 to 2025-11-12
+      │    │  ├─ Batch size: 1,000
+      │    │  ├─ Estimated batches: 60
+      │    │  └─ Estimated time: 15-20 minutes
+      │    │
+      │    └──► Confirm? (yes/no): yes
+      │
+      ├──► 2. Process batches with progress bar
+      │    │
+      │    │  [=====>              ] 10/60 batches (16.7%)
+      │    │
+      │    └──► For each batch (1,000 users):
+      │              │
+      │              ├──► Query historical activity ──────────►  audit_logs
+      │              │    SELECT user_id, action, created_at      table
+      │              │    FROM audit_logs
+      │              │    WHERE user_id IN (batch)
+      │              │      AND created_at BETWEEN $from, $to
+      │              │      AND action IN ('login', 'page_view',
+      │              │                     'button_click', ...)
+      │              │    Result: Array of activity records
+      │              │
+      │              ├──► Calculate scores ──────────────────►  ActivityScoring
+      │              │    foreach user:                          Service
+      │              │      activity_7d = countActions(          ::calculate()
+      │              │        user, last 7 days
+      │              │      )
+      │              │      activity_30d = countActions(
+      │              │        user, last 30 days
+      │              │      )
+      │              │
+      │              └──► Batch update users ────────────────►  users table
+      │                   User::upsert(                         UPDATE 1000
+      │                     [...batch of 1000...],              rows
+      │                     ['id'],
+      │                     ['activity_score_7d',
+      │                      'activity_score_30d',
+      │                      'updated_at']
+      │                   )
+      │
+      └──► 3. Show summary
+           │
+           │  ✓ Processed: 60,000 users
+           │  ✓ Updated: 58,742 users (1,258 had no activity)
+           │  ✓ Batches: 60
+           │  ✓ Duration: 17m 43s
+           │  ✓ Errors: 0
+           │
+           │  Score Distribution:
+           │  ├─ High (>50): 8,234 users (14.0%)
+           │  ├─ Medium (20-50): 22,156 users (37.7%)
+           │  ├─ Low (1-19): 28,352 users (48.2%)
+           │  └─ None (0): 1,258 users (2.1%)
+
+
+OPERATION #2: Validate Event Attendances
+─────────────────────────────────────────
+
+SCENARIO: Data quality check - verify event attendance records
+          are correctly linked and no orphaned records exist.
+
+$ php artisan
+  cdp:validate-
+  event-
+  attendances
+      │
+      │ --fix (optional, will auto-fix issues)
+      │
+      ▼
+ValidateEvent
+AttendancesCommand
+      │
+      ├──► 1. Scan for issues
+      │    │
+      │    │  Scanning event_attendances table...
+      │    │
+      │    ├──► Check #1: Orphaned user_id ──────────────────►  event_attendances
+      │    │    SELECT * FROM event_attendances                 LEFT JOIN users
+      │    │    WHERE user_id NOT IN (SELECT id FROM users)     Result: 3 orphaned
+      │    │    Result: 3 records
+      │    │
+      │    ├──► Check #2: Orphaned event_id ─────────────────►  event_attendances
+      │    │    SELECT * FROM event_attendances                 LEFT JOIN events
+      │    │    WHERE event_id NOT IN (SELECT id FROM events)   Result: 0 orphaned
+      │    │    Result: 0 records
+      │    │
+      │    ├──► Check #3: Duplicate attendances ──────────────►  event_attendances
+      │    │    SELECT user_id, event_id, COUNT(*)              GROUP BY
+      │    │    FROM event_attendances                          Result: 12 dupes
+      │    │    GROUP BY user_id, event_id
+      │    │    HAVING COUNT(*) > 1
+      │    │    Result: 12 duplicates (24 records total)
+      │    │
+      │    └──► Check #4: Future attended_at dates ──────────►  event_attendances
+      │         SELECT * FROM event_attendances                WHERE attended_at
+      │         WHERE attended_at > NOW()                      > NOW()
+      │         Result: 2 records                              Result: 2 records
+      │
+      ├──► 2. Show report
+      │    │
+      │    │  VALIDATION REPORT
+      │    │  ═════════════════
+      │    │
+      │    │  ✗ Issue #1: Orphaned user_id (3 records)
+      │    │    ├─ Record ID: 4567 → user_id: 999 (deleted)
+      │    │    ├─ Record ID: 8901 → user_id: 1042 (deleted)
+      │    │    └─ Record ID: 9012 → user_id: 1078 (deleted)
+      │    │
+      │    │  ✓ Issue #2: No orphaned event_id
+      │    │
+      │    │  ✗ Issue #3: Duplicate attendances (12 users)
+      │    │    ├─ user_id: 123, event_id: 5 (2 records)
+      │    │    ├─ user_id: 456, event_id: 8 (2 records)
+      │    │    └─ ... (10 more)
+      │    │
+      │    │  ✗ Issue #4: Future attended_at (2 records)
+      │    │    ├─ Record ID: 1234 → attended_at: 2026-01-01
+      │    │    └─ Record ID: 5678 → attended_at: 2025-12-25
+      │    │
+      │    │  Total Issues: 17
+      │    │
+      │    └──► Prompt: Fix issues automatically? (yes/no)
+      │
+      └──► 3. Apply fixes (if --fix flag or user confirms)
+           │
+           ├──► Fix #1: Delete orphaned records ───────────────►  DELETE FROM
+           │    DELETE FROM event_attendances                     event_attendances
+           │    WHERE id IN (4567, 8901, 9012)                    Result: 3 deleted
+           │
+           ├──► Fix #2: Remove duplicate attendances ──────────►  Keep earliest,
+           │    Keep earliest record, delete duplicates           delete rest
+           │    DELETE FROM event_attendances                     Result: 12 deleted
+           │    WHERE id IN (...)
+           │
+           ├──► Fix #3: Correct future dates ──────────────────►  UPDATE to event
+           │    UPDATE event_attendances                          date
+           │    SET attended_at = (SELECT event_date FROM events  Result: 2 updated
+           │                       WHERE id = event_id)
+           │    WHERE id IN (1234, 5678)
+           │
+           └──► Summary:
+                │
+                │  ✓ Deleted: 15 records
+                │  ✓ Updated: 2 records
+                │  ✓ Fixed: 17 issues
+                │  ✓ Data quality restored
+
+
+OPERATION #3: Backfill Product Subscriptions
+─────────────────────────────────────────────
+
+SCENARIO: Legacy system had implicit product subscriptions.
+          Need to create explicit records in user_product_subscription table.
+
+$ php artisan
+  cdp:backfill-
+  product-
+  subscriptions
+      │
+      │ --source=legacy_products_csv
+      │ --dry-run (optional, preview only)
+      │
+      ▼
+BackfillProduct
+SubscriptionsCommand
+      │
+      ├──► 1. Load source data
+      │    │
+      │    │  Reading CSV: legacy_products.csv
+      │    │  ├─ Rows: 4,567
+      │    │  ├─ Format: email, product_slug, subscribed_date
+      │    │  └─ Validation: OK
+      │    │
+      │    └──► Parse into structured array
+      │
+      ├──► 2. Match to existing records
+      │    │
+      │    │  Matching users and products...
+      │    │  [=========>          ] 2,567/4,567 (56.2%)
+      │    │
+      │    ├──► For each CSV row:
+      │    │    │
+      │    │    ├──► Find user by email ──────────────────────►  users table
+      │    │    │    User::where('email', $row['email'])->first()
+      │    │    │    Result: User model or null
+      │    │    │
+      │    │    ├──► Find product by slug ───────────────────►  products table
+      │    │    │    Product::where('slug', $row['product_slug'])
+      │    │    │             ->first()
+      │    │    │    Result: Product model or null
+      │    │    │
+      │    │    └──► Check if subscription exists ───────────►  user_product_
+      │    │         UserProductSubscription::where([              subscription
+      │    │           'user_id' => $user->id,                    table
+      │    │           'product_id' => $product->id
+      │    │         ])->exists()
+      │    │         Result: true/false
+      │    │
+      │    └──► Results:
+      │         ├─ Valid matches: 4,234 (92.7%)
+      │         ├─ User not found: 156 (3.4%)
+      │         ├─ Product not found: 89 (1.9%)
+      │         └─ Already exists: 88 (1.9%)
+      │
+      ├──► 3. Preview changes (if --dry-run)
+      │    │
+      │    │  DRY RUN MODE - No changes will be made
+      │    │  ═══════════════════════════════════════
+      │    │
+      │    │  Would create 4,234 subscriptions:
+      │    │  ├─ john@example.com → Premium Newsletter
+      │    │  ├─ jane@example.com → Webinar Access
+      │    │  └─ ... (4,232 more)
+      │    │
+      │    │  Skipped records (333):
+      │    │  ├─ User not found: 156
+      │    │  ├─ Product not found: 89
+      │    │  └─ Already exists: 88
+      │    │
+      │    └──► Exit (no changes made)
+      │
+      └──► 4. Insert subscriptions (if not --dry-run)
+           │
+           │  Creating subscriptions...
+           │  [===================] 4,234/4,234 (100%)
+           │
+           ├──► Batch insert (chunks of 500) ─────────────────►  user_product_
+           │    UserProductSubscription::insert([                 subscription
+           │      [...chunk of 500...],                           table
+           │    ])                                                BULK INSERT
+           │    Repeat 9 times (4,234 ÷ 500 = 9 batches)         4,234 rows
+           │
+           └──► Summary:
+                │
+                │  ✓ Created: 4,234 subscriptions
+                │  ✓ Skipped: 333 records (see log)
+                │  ✓ Duration: 3m 12s
+                │  ✓ Errors: 0
+                │
+                │  Distribution by product:
+                │  ├─ Premium Newsletter: 1,892 (44.7%)
+                │  ├─ Webinar Access: 1,456 (34.4%)
+                │  ├─ VIP Events: 623 (14.7%)
+                │  └─ Other: 263 (6.2%)
+
+
+┌───────────────────────────────────────────────────────────────────┐
+│                   BACKFILL OPERATIONS SUMMARY                     │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Command                        Purpose            Duration       │
+│  ─────────────────────────────  ─────────────────  ─────────────  │
+│                                                                   │
+│  cdp:backfill-activity-scores   Recalculate scores 15-20 min     │
+│                                 from historical                   │
+│                                 audit logs                        │
+│                                                                   │
+│  cdp:validate-event-attendances Data quality check  2-5 min      │
+│                                 for event records                 │
+│                                                                   │
+│  cdp:backfill-product-          Import legacy       3-10 min     │
+│  subscriptions                  subscription data                │
+│                                                                   │
+│  All operations:                                                  │
+│  ├─ Support --dry-run mode (preview only)                        │
+│  ├─ Use progress bars for long operations                        │
+│  ├─ Batch processing for performance                             │
+│  ├─ Show detailed summaries                                      │
+│  └─ Log all changes to audit_logs table                          │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Re-Sync Tool Workflow
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│              RE-SYNC MANAGER - ADMIN TOOL WORKFLOW                │
+│              (Manual Data Correction & Synchronization)           │
+└───────────────────────────────────────────────────────────────────┘
+
+ADMIN UI                    LIVEWIRE COMPONENT            QUEUE/JOBS
+────────                    ──────────────────            ──────────
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Re-Sync Manager                    /admin/cdp/re-sync          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌────────────────────────┐  ┌────────────────────────┐        │
+│  │  Panel 1: Sync All     │  │  Panel 2: Sync Segment │        │
+│  │                        │  │                        │        │
+│  │  Total Users: 60,000   │  │  Select segment:       │        │
+│  │                        │  │  [Dropdown ▼          ]│        │
+│  │  [Sync All Users]      │  │                        │        │
+│  │                        │  │  Users: 2,345          │        │
+│  │  Progress: 0%          │  │                        │        │
+│  │  [               ]     │  │  [Sync Segment]        │        │
+│  └────────────────────────┘  └────────────────────────┘        │
+│                                                                 │
+│  ┌────────────────────────┐  ┌────────────────────────┐        │
+│  │  Panel 3: Single User  │  │  Panel 4: Recalc Scores│        │
+│  │                        │  │                        │        │
+│  │  Email:                │  │  Recalculate activity  │        │
+│  │  [________________]    │  │  scores for all users  │        │
+│  │  [Search]              │  │                        │        │
+│  │                        │  │  [Recalculate]         │        │
+│  │  User: Not found       │  │                        │        │
+│  │  [Sync User]           │  │  Progress: 0%          │        │
+│  └────────────────────────┘  └────────────────────────┘        │
+│                                                                 │
+│  Recent Operations                                              │
+│  ├─ 2025-11-12 14:30 - Sync All (60,000 users) - Completed     │
+│  ├─ 2025-11-11 09:15 - Sync Segment "Pro Tier" - Completed     │
+│  └─ 2025-11-10 16:42 - Recalc Scores - Completed               │
+└─────────────────────────────────────────────────────────────────┘
+
+
+WORKFLOW #1: Sync All Users to Campaign Monitor
+────────────────────────────────────────────────
+
+Step 1: Admin clicks "Sync All Users"
+      │
+      ├──► Trigger confirmation modal ──────────────────────►  wire:click=
+      │                                                         "confirmSyncAll"
+      │    ┌──────────────────────────────────────────────┐
+      │    │  Confirm Full Sync                           │
+      │    ├──────────────────────────────────────────────┤
+      │    │                                              │
+      │    │  This will sync ALL 60,000 users to         │
+      │    │  Campaign Monitor.                           │
+      │    │                                              │
+      │    │  Estimated impact:                           │
+      │    │  ├─ API calls: ~60 (batched 1,000 each)     │
+      │    │  ├─ Duration: ~2 hours                       │
+      │    │  └─ Cannot be cancelled once started         │
+      │    │                                              │
+      │    │  [Cancel]              [Confirm & Start]     │
+      │    └──────────────────────────────────────────────┘
+      │
+      └──► Admin confirms
+
+
+Step 2: Dispatch job
+      │
+      ├──► ReSyncManager.php ──────────────────────────────►  executeSyncAll()
+      │    │                                                       │
+      │    │                                                       ▼
+      │    │                                                 ReSyncAllUsersJob
+      │    │                                                 ::dispatch()
+      │    │                                                 Queue: cm-sync
+      │    │                                                 Tries: 1
+      │    │                                                 Timeout: 2 hours
+      │    │                                                       │
+      │    │                                                       ▼
+      │    │                                                 Job starts
+      │    │                                                 processing
+      │    │
+      │    └──► Flash success message
+      │         session()->flash('success', 'Full sync started')
+
+
+Step 3: Job processes batches (background)
+      │
+      │  ReSyncAllUsersJob::handle()
+      │       │
+      │       ├──► Get all users (chunked)
+      │       │    User::where('permission_to_track', true)
+      │       │        ->chunk(1000, function($users) { ... })
+      │       │
+      │       ├──► For each batch (1,000 users):
+      │       │    │
+      │       │    ├──► Format for CM API ────────────────────►  Build subscriber
+      │       │    │    $subscribers = $users->map(fn($u) => [   array
+      │       │    │      'EmailAddress' => $u->email,
+      │       │    │      'Name' => $u->fullname,
+      │       │    │      'CustomFields' => [
+      │       │    │        ['Key' => 'tier_name',
+      │       │    │         'Value' => $u->tier_name],
+      │       │    │        ['Key' => 'activity_score_7d',
+      │       │    │         'Value' => $u->activity_score_7d],
+      │       │    │        ...
+      │       │    │      ],
+      │       │    │      'ConsentToTrack' => 'Yes',
+      │       │    │    ])
+      │       │    │
+      │       │    ├──► Bulk import to CM ──────────────────────►  CM API
+      │       │    │    CampaignMonitorService                     POST /
+      │       │    │      ::bulkImportSubscribers($subscribers)    subscribers
+      │       │    │    API Call: 1 request for 1,000 users        /import
+      │       │    │                                                {
+      │       │    │                                                  Subscribers:
+      │       │    │                                                  [...]
+      │       │    │                                                }
+      │       │    │                                                      │
+      │       │    │    ◄───────────────────────────────────────────────┘
+      │       │    │    Response: 200 OK
+      │       │    │    { Imported: 998, Duplicates: 2 }
+      │       │    │
+      │       │    ├──► Update progress ────────────────────────►  Cache::put(
+      │       │    │    Cache::put(                                  'resync_all
+      │       │    │      'resync_all_progress',                     _progress',
+      │       │    │      [                                          [...data...]
+      │       │    │        'processed' => 1000,                   )
+      │       │    │        'total' => 60000,
+      │       │    │        'percentage' => 1.67,
+      │       │    │      ],
+      │       │    │      now()->addHours(2)
+      │       │    │    )
+      │       │    │
+      │       │    └──► Update users table ───────────────────────►  UPDATE users
+      │       │         User::whereIn('id', $userIds)                SET
+      │       │              ->update([                               cm_synced_at
+      │       │                'cm_synced_at' => now(),              = NOW()
+      │       │                'cm_status' => 'active'
+      │       │              ])
+      │       │
+      │       └──► Repeat for all 60 batches (60,000 ÷ 1,000)
+
+
+Step 4: Real-time progress tracking (Livewire polling)
+      │
+      │  Re-Sync Manager UI (wire:poll.2s)
+      │       │
+      │       ├──► Poll every 2 seconds ───────────────────────►  Cache::get(
+      │       │    public function getProgress()                   'resync_all
+      │       │    {                                                _progress'
+      │       │      return Cache::get('resync_all_progress');    )
+      │       │    }                                                    │
+      │       │                                                         ▼
+      │       │                                                   Return:
+      │       │                                                   {
+      │       │                                                     processed:
+      │       │                                                     15,000,
+      │       │                                                     total: 60,000,
+      │       │                                                     percentage:
+      │       │                                                     25.0
+      │       │                                                   }
+      │       │
+      │       └──► Update UI in real-time
+      │            ┌────────────────────────┐
+      │            │  Sync All Users        │
+      │            │  Progress: 25%         │
+      │            │  [=====          ]     │
+      │            │  Processed: 15,000 /   │
+      │            │            60,000      │
+      │            │  Estimated: 1h 30m     │
+      │            │  remaining             │
+      │            └────────────────────────┘
+
+
+Step 5: Job completes
+      │
+      ├──► Save operation log ───────────────────────────────►  resync_operations
+      │    ResyncOperation::create([                            table
+      │      'operation_type' => 'sync_all',                    INSERT record
+      │      'started_at' => $startTime,
+      │      'completed_at' => now(),
+      │      'users_count' => 60000,
+      │      'status' => 'completed',
+      │      'metadata' => [
+      │        'api_calls' => 60,
+      │        'duration_seconds' => 7234,
+      │        'errors' => 0,
+      │      ]
+      │    ])
+      │
+      ├──► Clear cache ──────────────────────────────────────►  Cache::forget(
+      │    Cache::forget('resync_all_progress')                 'resync_all
+      │                                                          _progress'
+      │                                                        )
+      │
+      └──► Notification
+           │
+           │  ✓ Full sync completed!
+           │  ├─ 60,000 users synced
+           │  ├─ Duration: 2h 0m 34s
+           │  └─ Errors: 0
+
+
+WORKFLOW #2: Sync Segment
+──────────────────────────
+
+(Similar flow to Sync All, but only processes users matching segment query)
+
+Step 1: Admin selects segment from dropdown
+      │
+      └──► Load segment details ──────────────────────────────►  Segment::find()
+           Show user count (e.g., 2,345)                         ->execute()
+                                                                 ->count()
+
+Step 2: Admin clicks "Sync Segment"
+      │
+      └──► Confirmation modal (similar to Sync All)
+
+Step 3: Dispatch job
+      │
+      └──► ReSyncSegmentJob::dispatch($segmentId)
+           Queue: cm-sync
+
+
+WORKFLOW #3: Sync Single User
+──────────────────────────────
+
+Step 1: Admin enters email and clicks "Search"
+      │
+      ├──► wire:model.live="userEmail" ─────────────────────►  User::where(
+      │                                                          'email',
+      │    ┌────────────────────────┐                           $userEmail
+      │    │  User Found:           │                         )->first()
+      │    │  John Doe              │                              │
+      │    │  john@example.com      │                              ▼
+      │    │  Pro Tier              │                         User model
+      │    │  Last synced: 2 days   │◄──────────────────────  returned
+      │    │  ago                   │
+      │    │  [Sync User]           │
+      │    └────────────────────────┘
+      │
+      └──► Admin clicks "Sync User"
+
+
+Step 2: Sync immediately (no queue, instant)
+      │
+      └──► ReSyncManager.php ──────────────────────────────────►  syncSingleUser()
+           │                                                           │
+           │                                                           ▼
+           │                                                     CampaignMonitor
+           │                                                     Service
+           │                                                     ::updateSubscriber
+           │                                                     ($user)
+           │                                                           │
+           │                                                           ├──► API Call
+           │                                                           │    PUT /
+           │                                                           │    subscribers
+           │                                                           │    /{email}
+           │                                                           │
+           │                                                           └──► Update
+           │                                                                users table
+           │
+           └──► Flash success message
+                "User synced successfully!"
+
+
+WORKFLOW #4: Recalculate Scores
+────────────────────────────────
+
+(Same pattern as Sync All, but recalculates activity_score_7d and
+activity_score_30d from audit_logs without calling CM API)
+
+
+┌───────────────────────────────────────────────────────────────────┐
+│                RE-SYNC MANAGER FEATURES SUMMARY                   │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  1. Sync All Users                                                │
+│     ├─ Sync all 60,000 users to Campaign Monitor                 │
+│     ├─ Batched processing (1,000 per batch)                      │
+│     ├─ Real-time progress tracking                               │
+│     └─ Duration: ~2 hours                                        │
+│                                                                   │
+│  2. Sync Segment                                                  │
+│     ├─ Select specific segment                                   │
+│     ├─ Only sync matching users                                  │
+│     └─ Duration: Varies by segment size                          │
+│                                                                   │
+│  3. Sync Single User                                              │
+│     ├─ Search by email                                           │
+│     ├─ Instant sync (no queue)                                   │
+│     └─ Duration: ~2 seconds                                      │
+│                                                                   │
+│  4. Recalculate Scores                                            │
+│     ├─ Recalculate activity_score_7d and activity_score_30d      │
+│     ├─ Uses audit_logs table                                     │
+│     ├─ No CM API calls                                           │
+│     └─ Duration: ~15-20 minutes                                  │
+│                                                                   │
+│  All operations:                                                  │
+│  ├─ Confirmation modals with impact estimates                    │
+│  ├─ Real-time progress bars (wire:poll.2s)                       │
+│  ├─ Operation logging (resync_operations table)                  │
+│  ├─ Recent operations history display                            │
+│  └─ Dark mode support throughout                                 │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+**Document Status:** Historical Reference - Updated with Campaign Metrics, Backfill & Re-Sync
 **Last Updated:** 2025-11-12
-**Version:** 2.1 (Product Filtering Enhancement)
+**Version:** 3.0 (Campaign Metrics & Backfill Enhancement)

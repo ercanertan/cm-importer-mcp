@@ -1,7 +1,7 @@
 # CDP Project - Complete TODO List (UI-First Approach)
 
 **Last Updated:** 2025-11-12
-**Total Tasks:** 78 (reorganized with UI-first approach)
+**Total Tasks:** 87 (reorganized with UI-first approach + campaign metrics + backfill features)
 **Status:** Ready to Begin
 **Tech Stack:** Laravel 12 + Livewire 3.6 + Flux Pro + Tailwind v4
 
@@ -377,6 +377,43 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
   - Estimate: "~60,000 users will be synced, estimated time: 15 minutes"
   - Safety: Require confirmation, prevent concurrent syncs
 
+### Campaign Metrics Import & Storage
+- [ ] **4.19** Create campaign_metrics table migration
+  - File: `database/migrations/YYYY_MM_DD_create_campaign_metrics_table.php`
+  - Table: `campaign_metrics` (id, campaign_id FK, date, opens, unique_opens, clicks, unique_clicks, bounces, unsubscribes, spam_reports, created_at, updated_at)
+  - Indexes: Composite (campaign_id, date), single (created_at)
+  - Purpose: Store daily campaign performance metrics from Campaign Monitor
+
+- [ ] **4.20** Build CampaignMetricsService
+  - File: `app/Services/CampaignMetricsService.php`
+  - Methods: `fetchMetricsFromCM($campaignId)`, `aggregateMetrics($campaignId)`, `storeMetrics($campaignId, $metrics)`
+  - API Integration: Use CM API to fetch campaign summary and detailed stats
+  - Rate Limiting: Respect CM API limits (throttle requests)
+  - Error Handling: Retry on failures, log errors
+
+- [ ] **4.21** Create FetchCampaignMetricsJob (scheduled)
+  - File: `app/Jobs/FetchCampaignMetricsJob.php`
+  - Queue: `cm-sync` (low priority)
+  - Schedule: Hourly via Laravel Scheduler
+  - Logic: Fetch metrics for campaigns sent in last 24 hours, store in campaign_metrics table
+  - Batch Processing: Process 10 campaigns per job run
+  - Update Campaign model: Aggregate opens_count, clicks_count, bounce_count, unsubscribe_count
+
+- [ ] **4.22** Create ImportHistoricalCampaignMetrics command
+  - File: `app/Console/Commands/ImportHistoricalCampaignMetrics.php`
+  - Command: `php artisan cdp:import-historical-metrics {months=12}`
+  - Purpose: One-time backfill of historical campaign data from Campaign Monitor
+  - Logic: Fetch all campaigns from last X months, import metrics to campaign_metrics table
+  - Progress Bar: Show import progress with total/processed counts
+  - Use Case: Initial setup, data recovery
+
+- [ ] **4.23** Add metrics aggregation fields to Campaign model
+  - File: Update `app/Models/Campaign.php` migration
+  - New Fields: `opens_count`, `unique_opens_count`, `clicks_count`, `unique_clicks_count`, `bounce_count`, `unsubscribe_count`, `spam_report_count`
+  - Calculated Fields: `open_rate` (accessor), `click_rate` (accessor), `click_to_open_rate` (accessor)
+  - Relationships: `hasMany(CampaignMetric::class)`
+  - Methods: `refreshMetrics()` to aggregate from campaign_metrics table
+
 ---
 
 ## 📧 Phase 5: Campaign Management UI & Backend (Weeks 10-11) - 16 tasks
@@ -585,7 +622,7 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
   - Consent tracking: Log consent changes with timestamps
   - UI: GDPR dashboard in user settings
 
-### Data Migration
+### Data Migration & Backfill
 - [ ] **6.18** Build data migration plan for existing 60K users
   - Script: `database/migrations/migrate_existing_users_to_cdp.php`
   - Steps: Assign default tier (Free), set activity scores to 0, backfill last_login_at
@@ -593,25 +630,72 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
   - Initial sync: Bulk sync all users to CM with persistent fields
   - Timeline: Run migration during off-peak hours, estimated 2-3 hours
 
+- [ ] **6.19** Backfill historical activity scores
+  - File: `app/Console/Commands/BackfillActivityScores.php`
+  - Command: `php artisan cdp:backfill-activity-scores {--days=90}`
+  - Data Sources: Parse login_logs, page_view_logs, session_logs tables
+  - Logic: Calculate activity_score_7d and activity_score_30d retroactively for all users
+  - Weighting: Match ActivityScoringService weights (logins, events, page views)
+  - Performance: Process in chunks of 1000 users, queue-based for large datasets
+  - Validation: Compare backfilled scores with expected ranges, flag anomalies
+
+- [ ] **6.20** Backfill event attendance records
+  - File: `app/Console/Commands/ValidateEventAttendances.php`
+  - Command: `php artisan cdp:validate-event-attendances`
+  - Purpose: Ensure events and event_attendances tables have complete historical data
+  - Validation Checks:
+    - Verify all events have valid starts_at/ends_at dates
+    - Check event_attendances have attended_at or registered_at timestamps
+    - Identify orphaned records (user_id or event_id references missing entities)
+  - Repair Actions: Fix null timestamps, remove orphaned records, log discrepancies
+  - Report: Generate CSV report of data quality issues found
+
+- [ ] **6.21** Backfill product subscriptions from historical data
+  - File: `app/Console/Commands/BackfillProductSubscriptions.php`
+  - Command: `php artisan cdp:backfill-product-subscriptions {--source=legacy}`
+  - Check: Verify if historical product opt-in data exists in legacy tables
+  - Migration: Map legacy product IDs to new product IDs
+  - Populate: user_product_subscription table with subscribed_at dates from legacy records
+  - Default Values: Set is_active=true for all backfilled subscriptions unless opt-out record exists
+  - Validation: Ensure no duplicate (user_id, product_id) pairs, check tier compatibility
+
+- [ ] **6.22** Create admin re-sync tool (ReSyncManager)
+  - File: `app/Livewire/Admin/Cdp/ReSyncManager.php`
+  - View: `resources/views/livewire/admin/cdp/re-sync-manager.blade.php`
+  - Route: `/admin/cdp/re-sync`
+  - Features:
+    - Re-sync All Users: Trigger full sync of all 60K users to Campaign Monitor
+    - Re-sync Segment: Select segment, sync only matching users
+    - Re-sync Single User: Enter email, sync individual user
+    - Re-calculate Scores: Recalculate activity scores for all users
+  - Progress Tracking: Real-time progress bar with wire:poll.2s
+  - Safety: Confirmation modal with estimated time and API call count
+  - Queue Management: Dispatch jobs to cm-sync queue with rate limiting
+  - Use Cases: Data correction after schema changes, CM field mapping updates, manual fixes
+
 ---
 
 ## 📈 TASK SUMMARY BY TYPE
 
-### UI/Frontend (Livewire + Flux) - 32 tasks
-**Admin UI:** 1.5-1.7, 1.8-1.10, 2.4-2.6, 2.9-2.10, 3.4-3.12, 4.15-4.18, 5.5-5.16
+### UI/Frontend (Livewire + Flux) - 33 tasks
+**Admin UI:** 1.5-1.7, 1.8-1.10, 2.4-2.6, 2.9-2.10, 3.4-3.12, 4.15-4.18, 5.5-5.16, 6.22
 **User-Facing UI:** 1.11-1.12, 2.7-2.8
 **Navigation:** 1.13-1.14
 
-### Backend (Models, Services, Jobs) - 28 tasks
+### Backend (Models, Services, Jobs) - 34 tasks
 **Models:** 1.1-1.4, 2.1, 3.1, 5.1-5.2
-**Services:** 2.2, 3.2-3.3, 4.2, 4.4, 4.10, 4.14
-**Jobs:** 2.3, 4.5-4.6, 4.9, 4.11-4.12, 5.3
+**Services:** 2.2, 3.2-3.3, 4.2, 4.4, 4.10, 4.14, 4.20
+**Jobs:** 2.3, 4.5-4.6, 4.9, 4.11-4.12, 4.21, 5.3
 **Events/Listeners:** 4.7-4.8
 **Webhooks:** 4.13
 **Scheduler:** 5.4
+**Commands:** 4.22, 6.19-6.21
 
-### API Integration - 3 tasks
-4.1, 4.3, 6.15
+### API Integration - 4 tasks
+4.1, 4.3, 4.20, 6.15
+
+### Campaign Metrics - 5 tasks
+4.19-4.23
 
 ### Testing - 5 tasks
 6.7-6.11
@@ -620,6 +704,9 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 **Performance:** 6.1-6.3
 **Queue:** 6.4-6.6
 **Migration:** 6.18
+
+### Backfill & Data Quality - 4 tasks
+6.19-6.22
 
 ### Documentation & Compliance - 5 tasks
 6.12-6.14, 6.16-6.17
@@ -647,11 +734,12 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 3. Tasks 4.7-4.9 (Registration sync)
 4. Tasks 4.15-4.18 (Sync UI)
 
-### Week 4: CM Integration (Campaigns)
+### Week 4: CM Integration (Campaigns & Metrics)
 1. Tasks 4.10-4.12 (Dynamic tags)
 2. Tasks 4.13-4.14 (Webhooks)
-3. Tasks 5.1-5.4 (Recurring backend)
-4. Tasks 5.5-5.7 (Template UI)
+3. Tasks 4.19-4.23 (Campaign metrics import)
+4. Tasks 5.1-5.4 (Recurring backend)
+5. Tasks 5.5-5.7 (Template UI)
 
 ### Week 5: Campaign Builder
 1. Tasks 5.8-5.12 (Campaign wizard)
@@ -661,7 +749,7 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 1. Tasks 6.1-6.6 (Performance & queues)
 2. Tasks 6.7-6.11 (Testing)
 3. Tasks 6.12-6.17 (Docs & compliance)
-4. Task 6.18 (Migration)
+4. Tasks 6.18-6.22 (Migration & backfill)
 
 ---
 
@@ -671,7 +759,10 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 - **Segment Builder (3.4)** requires: Segment model (3.1), Query builder (3.2)
 - **Campaign Builder (5.8)** requires: Segments (3.1-3.7), CM API (4.1-4.3), Templates (5.1)
 - **Sync UI (4.15)** requires: All sync jobs (4.4-4.12)
+- **Campaign Metrics (4.19-4.23)** requires: Campaign model (5.2), CM API (4.1), Webhooks (4.13-4.14)
 - **Data Migration (6.18)** requires: All Phase 1-5 backend tasks
+- **Backfill Commands (6.19-6.21)** require: Data migration (6.18), Event/Product models (2.1, 1.3)
+- **Re-sync Tool (6.22)** requires: All sync infrastructure (4.4-4.9), Metrics system (4.19-4.23)
 
 ### Parallel Opportunities
 - UI tasks can be built in parallel with backend (use mock data)
@@ -685,11 +776,15 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 - **Phase 1:** 48 hours (14 tasks × ~3.5h avg)
 - **Phase 2:** 36 hours (10 tasks × ~3.6h avg)
 - **Phase 3:** 40 hours (12 tasks × ~3.3h avg)
-- **Phase 4:** 64 hours (18 tasks × ~3.6h avg)
+- **Phase 4:** 82 hours (23 tasks × ~3.6h avg) - includes campaign metrics infrastructure
 - **Phase 5:** 56 hours (16 tasks × ~3.5h avg)
-- **Phase 6:** 52 hours (18 tasks × ~2.9h avg)
+- **Phase 6:** 66 hours (22 tasks × ~3.0h avg) - includes backfill & re-sync tools
 
-**Total: ~296 hours (~13 weeks at 24 hours/week)**
+**Total: ~328 hours (~14 weeks at 24 hours/week)**
+
+**New Features Added:**
+- Campaign Metrics Import & Storage: +18 hours (Tasks 4.19-4.23)
+- Backfill & Data Quality Tools: +14 hours (Tasks 6.19-6.22)
 
 ---
 

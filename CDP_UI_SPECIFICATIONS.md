@@ -1014,17 +1014,557 @@ $classes = match($type) {
 
 ---
 
+## Re-Sync Manager (Admin Tool)
+
+### Component Overview
+
+**Component:** ReSyncManager (Livewire)
+**Route:** `/admin/cdp/re-sync`
+**File:** `app/Livewire/Admin/Cdp/ReSyncManager.php`
+**View:** `resources/views/livewire/admin/cdp/re-sync-manager.blade.php`
+
+**Purpose:** Admin tool for manual data synchronization, backfill operations, and data quality corrections. Critical for data recovery, field mapping updates, and troubleshooting sync issues.
+
+---
+
+### Layout: Four-Panel Dashboard
+
+```blade
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Header -->
+    <flux:header class="mb-8">
+        <flux:heading>Re-Sync & Backfill Manager</flux:heading>
+        <flux:subheading>
+            Manual data synchronization tools for Campaign Monitor and historical data backfill operations.
+            Use with caution - these operations can generate significant API usage.
+        </flux:subheading>
+    </flux:header>
+
+    <!-- Warning Banner -->
+    <div class="mb-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 rounded-r-lg">
+        <div class="flex items-center">
+            <svg class="w-5 h-5 text-yellow-400 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+            </svg>
+            <div>
+                <p class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                    Admin-Only Operations
+                </p>
+                <p class="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                    These operations can consume significant API quota and processing time. Always review estimates before proceeding.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Four Operation Panels -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <!-- Panel 1: Re-Sync All Users -->
+        <div class="bg-white dark:bg-zinc-800 rounded-lg border border-neutral-200 dark:border-neutral-700 p-6">
+            <div class="flex items-center mb-4">
+                <div class="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                    <svg class="w-6 h-6 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Re-Sync All Users</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Full sync of all users to Campaign Monitor</p>
+                </div>
+            </div>
+
+            <div class="space-y-3 mb-4">
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Total Users:</span>
+                    <span class="font-medium text-gray-900 dark:text-white" wire:poll.60s>
+                        {{ number_format($totalUsersCount) }}
+                    </span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Estimated API Calls:</span>
+                    <span class="font-medium text-gray-900 dark:text-white">
+                        ~{{ ceil($totalUsersCount / 1000) }} calls
+                    </span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Estimated Time:</span>
+                    <span class="font-medium text-gray-900 dark:text-white">
+                        ~{{ ceil($totalUsersCount / 1000 * 2) }} minutes
+                    </span>
+                </div>
+            </div>
+
+            @if($syncAllProgress)
+                <!-- Progress Bar -->
+                <div class="mb-4" wire:poll.2s>
+                    <div class="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        <span>Syncing...</span>
+                        <span>{{ $syncAllProgress }}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                             style="width: {{ $syncAllProgress }}%"></div>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                        Processed: {{ number_format($syncedUsersCount) }} / {{ number_format($totalUsersCount) }}
+                    </p>
+                </div>
+            @endif
+
+            <flux:button
+                variant="primary"
+                class="w-full"
+                wire:click="confirmSyncAll"
+                :disabled="$syncAllProgress > 0">
+                {{ $syncAllProgress ? 'Syncing...' : 'Start Full Sync' }}
+            </flux:button>
+        </div>
+
+        <!-- Panel 2: Re-Sync Segment -->
+        <div class="bg-white dark:bg-zinc-800 rounded-lg border border-neutral-200 dark:border-neutral-700 p-6">
+            <div class="flex items-center mb-4">
+                <div class="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                    <svg class="w-6 h-6 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+                        <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Re-Sync Segment</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Sync users matching a specific segment</p>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Select Segment
+                </label>
+                <select
+                    wire:model.live="selectedSegmentId"
+                    class="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-neutral-700 rounded-md text-sm text-gray-900 dark:text-white">
+                    <option value="">-- Choose a segment --</option>
+                    @foreach($segments as $segment)
+                        <option value="{{ $segment->id }}">
+                            {{ $segment->name }} ({{ number_format($segment->users_count) }} users)
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+
+            @if($selectedSegmentId)
+                <div class="space-y-3 mb-4 p-3 bg-gray-50 dark:bg-zinc-900/50 rounded-lg">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400">Matching Users:</span>
+                        <span class="font-medium text-gray-900 dark:text-white">
+                            {{ number_format($selectedSegmentUsersCount) }}
+                        </span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400">Estimated Time:</span>
+                        <span class="font-medium text-gray-900 dark:text-white">
+                            ~{{ ceil($selectedSegmentUsersCount / 1000 * 2) }} minutes
+                        </span>
+                    </div>
+                </div>
+
+                @if($syncSegmentProgress)
+                    <div class="mb-4" wire:poll.2s>
+                        <div class="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                            <span>Syncing segment...</span>
+                            <span>{{ $syncSegmentProgress }}%</span>
+                        </div>
+                        <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                            <div class="bg-green-600 h-2 rounded-full transition-all duration-300"
+                                 style="width: {{ $syncSegmentProgress }}%"></div>
+                        </div>
+                    </div>
+                @endif
+
+                <flux:button
+                    variant="primary"
+                    class="w-full bg-green-600 hover:bg-green-700"
+                    wire:click="confirmSyncSegment"
+                    :disabled="$syncSegmentProgress > 0">
+                    {{ $syncSegmentProgress ? 'Syncing...' : 'Sync Segment' }}
+                </flux:button>
+            @endif
+        </div>
+
+        <!-- Panel 3: Re-Sync Single User -->
+        <div class="bg-white dark:bg-zinc-800 rounded-lg border border-neutral-200 dark:border-neutral-700 p-6">
+            <div class="flex items-center mb-4">
+                <div class="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                    <svg class="w-6 h-6 text-purple-600 dark:text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Re-Sync Single User</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Quick sync for a specific user</p>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    User Email
+                </label>
+                <input
+                    type="email"
+                    wire:model.live.debounce.500ms="userEmail"
+                    placeholder="user@example.com"
+                    class="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-neutral-700 rounded-md text-sm text-gray-900 dark:text-white"
+                />
+            </div>
+
+            @if($foundUser)
+                <div class="mb-4 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-700">
+                    <p class="text-sm font-medium text-gray-900 dark:text-white">{{ $foundUser->fullname }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ $foundUser->email }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Tier: <span class="font-medium">{{ ucfirst($foundUser->tier_name ?? 'N/A') }}</span>
+                    </p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                        Last synced: {{ $foundUser->cm_synced_at ? $foundUser->cm_synced_at->diffForHumans() : 'Never' }}
+                    </p>
+                </div>
+
+                @if($singleUserSyncing)
+                    <div class="mb-4">
+                        <div class="flex items-center justify-center py-2">
+                            <svg class="animate-spin h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span class="ml-2 text-sm text-gray-600 dark:text-gray-400">Syncing user...</span>
+                        </div>
+                    </div>
+                @endif
+
+                <flux:button
+                    variant="primary"
+                    class="w-full bg-purple-600 hover:bg-purple-700"
+                    wire:click="syncSingleUser"
+                    :disabled="$singleUserSyncing">
+                    {{ $singleUserSyncing ? 'Syncing...' : 'Sync This User' }}
+                </flux:button>
+            @elseif($userEmail && strlen($userEmail) > 3)
+                <div class="mb-4 p-3 bg-gray-50 dark:bg-zinc-900/50 rounded-lg">
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                        {{ $searchingUser ? 'Searching...' : 'No user found with this email' }}
+                    </p>
+                </div>
+            @endif
+        </div>
+
+        <!-- Panel 4: Re-Calculate Activity Scores -->
+        <div class="bg-white dark:bg-zinc-800 rounded-lg border border-neutral-200 dark:border-neutral-700 p-6">
+            <div class="flex items-center mb-4">
+                <div class="p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg">
+                    <svg class="w-6 h-6 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/>
+                    </svg>
+                </div>
+                <div class="ml-4">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Re-Calculate Scores</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Recalculate activity scores for all users</p>
+                </div>
+            </div>
+
+            <div class="space-y-3 mb-4">
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Users to Process:</span>
+                    <span class="font-medium text-gray-900 dark:text-white">
+                        {{ number_format($totalUsersCount) }}
+                    </span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Lookback Period:</span>
+                    <span class="font-medium text-gray-900 dark:text-white">90 days</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600 dark:text-gray-400">Estimated Time:</span>
+                    <span class="font-medium text-gray-900 dark:text-white">
+                        ~{{ ceil($totalUsersCount / 1000 * 1) }} minutes
+                    </span>
+                </div>
+            </div>
+
+            @if($recalcProgress)
+                <div class="mb-4" wire:poll.2s>
+                    <div class="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        <span>Recalculating...</span>
+                        <span>{{ $recalcProgress }}%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                        <div class="bg-orange-600 h-2 rounded-full transition-all duration-300"
+                             style="width: {{ $recalcProgress }}%"></div>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                        Processed: {{ number_format($recalcProcessed) }} / {{ number_format($totalUsersCount) }}
+                    </p>
+                </div>
+            @endif
+
+            <flux:button
+                variant="primary"
+                class="w-full bg-orange-600 hover:bg-orange-700"
+                wire:click="confirmRecalcScores"
+                :disabled="$recalcProgress > 0">
+                {{ $recalcProgress ? 'Recalculating...' : 'Start Recalculation' }}
+            </flux:button>
+        </div>
+
+    </div>
+
+    <!-- Recent Operations Log -->
+    <div class="mt-8 bg-white dark:bg-zinc-800 rounded-lg border border-neutral-200 dark:border-neutral-700">
+        <div class="px-6 py-4 border-b border-neutral-200 dark:border-neutral-700">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Recent Operations</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Last 10 re-sync operations</p>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50 dark:bg-zinc-900">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Operation
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Target
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Users Processed
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Started
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Duration
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Status
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-neutral-200 dark:divide-neutral-700" wire:poll.10s>
+                    @forelse($recentOperations as $operation)
+                        <tr class="hover:bg-gray-50 dark:hover:bg-zinc-900">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                {{ $operation->operation_type }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ $operation->target }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ number_format($operation->users_processed) }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ $operation->started_at->format('Y-m-d H:i') }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ $operation->duration }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full
+                                    {{ $operation->status === 'completed' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : '' }}
+                                    {{ $operation->status === 'running' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' : '' }}
+                                    {{ $operation->status === 'failed' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' : '' }}">
+                                    {{ ucfirst($operation->status) }}
+                                </span>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="6" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                                No re-sync operations yet
+                            </td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal (Example for Sync All) -->
+    @if($showConfirmModal)
+        <div class="fixed inset-0 z-50 overflow-y-auto" wire:click="cancelOperation">
+            <div class="flex items-center justify-center min-h-screen px-4">
+                <!-- Backdrop -->
+                <div class="fixed inset-0 bg-black opacity-50"></div>
+
+                <!-- Modal -->
+                <div class="relative bg-white dark:bg-zinc-800 rounded-lg max-w-lg w-full p-6" wire:click.stop>
+                    <div class="flex items-center mb-4">
+                        <div class="p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-full">
+                            <svg class="w-6 h-6 text-yellow-600 dark:text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                            </svg>
+                        </div>
+                        <h3 class="ml-4 text-lg font-semibold text-gray-900 dark:text-white">
+                            Confirm {{ $confirmOperation }}
+                        </h3>
+                    </div>
+
+                    <div class="mb-6">
+                        <p class="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                            {{ $confirmMessage }}
+                        </p>
+
+                        <div class="bg-gray-50 dark:bg-zinc-900/50 rounded-lg p-4 space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-600 dark:text-gray-400">Users to process:</span>
+                                <span class="font-medium text-gray-900 dark:text-white">
+                                    {{ number_format($confirmUsersCount) }}
+                                </span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-600 dark:text-gray-400">Estimated API calls:</span>
+                                <span class="font-medium text-gray-900 dark:text-white">
+                                    ~{{ $confirmApiCalls }}
+                                </span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-600 dark:text-gray-400">Estimated duration:</span>
+                                <span class="font-medium text-gray-900 dark:text-white">
+                                    ~{{ $confirmDuration }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex space-x-3">
+                        <flux:button
+                            variant="ghost"
+                            class="flex-1"
+                            wire:click="cancelOperation">
+                            Cancel
+                        </flux:button>
+                        <flux:button
+                            variant="danger"
+                            class="flex-1"
+                            wire:click="executeOperation">
+                            Yes, Proceed
+                        </flux:button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+</div>
+```
+
+### Component Properties
+
+```php
+// app/Livewire/Admin/Cdp/ReSyncManager.php
+
+class ReSyncManager extends Component
+{
+    // Re-sync all users
+    public $syncAllProgress = 0;
+    public $syncedUsersCount = 0;
+    public $totalUsersCount = 0;
+
+    // Re-sync segment
+    public $selectedSegmentId = null;
+    public $selectedSegmentUsersCount = 0;
+    public $syncSegmentProgress = 0;
+    public $segments = [];
+
+    // Re-sync single user
+    public $userEmail = '';
+    public $foundUser = null;
+    public $searchingUser = false;
+    public $singleUserSyncing = false;
+
+    // Re-calculate scores
+    public $recalcProgress = 0;
+    public $recalcProcessed = 0;
+
+    // Confirmation modal
+    public $showConfirmModal = false;
+    public $confirmOperation = '';
+    public $confirmMessage = '';
+    public $confirmUsersCount = 0;
+    public $confirmApiCalls = 0;
+    public $confirmDuration = '';
+
+    // Recent operations log
+    public $recentOperations = [];
+
+    public function mount()
+    {
+        $this->totalUsersCount = User::count();
+        $this->segments = Segment::withCount('users')->get();
+        $this->loadRecentOperations();
+    }
+
+    public function confirmSyncAll()
+    {
+        $this->confirmOperation = 'Sync All Users';
+        $this->confirmMessage = 'This will sync all ' . number_format($this->totalUsersCount) . ' users to Campaign Monitor. This operation cannot be cancelled once started.';
+        $this->confirmUsersCount = $this->totalUsersCount;
+        $this->confirmApiCalls = ceil($this->totalUsersCount / 1000);
+        $this->confirmDuration = ceil($this->totalUsersCount / 1000 * 2) . ' minutes';
+        $this->showConfirmModal = true;
+    }
+
+    public function executeOperation()
+    {
+        match($this->confirmOperation) {
+            'Sync All Users' => $this->executeSyncAll(),
+            'Sync Segment' => $this->executeSyncSegment(),
+            'Recalculate Scores' => $this->executeRecalcScores(),
+            default => null,
+        };
+
+        $this->showConfirmModal = false;
+    }
+
+    protected function executeSyncAll()
+    {
+        // Dispatch job to queue
+        ReSyncAllUsersJob::dispatch();
+
+        // Track progress (updated by job)
+        session()->flash('message', 'Full sync started. Progress will update automatically.');
+    }
+
+    // ... other methods
+}
+```
+
+### Key Features
+
+1. **Four Sync Operations**: All users, specific segment, single user, recalculate scores
+2. **Real-time Progress**: `wire:poll.2s` for live progress updates
+3. **Confirmation Modals**: Safety checks before destructive operations
+4. **Estimate Previews**: API calls, duration, user counts
+5. **Operation Logging**: Table showing recent sync history
+6. **Dark Mode Support**: Full compatibility
+7. **Responsive Layout**: 2-column grid on desktop, stacked on mobile
+
+---
+
 ## Summary
 
 This UI specification document provides:
 
-✅ **78 UI Tasks** mapped to specific Livewire components
+✅ **87 UI Tasks** mapped to specific Livewire components (updated with backfill features)
 ✅ **Complete visual designs** with Flux Pro + Tailwind v4
 ✅ **Dark mode support** for all interfaces
 ✅ **Real-time updates** with wire:poll
 ✅ **Consistent component patterns** across all pages
 ✅ **Accessibility** with ARIA labels and semantic HTML
 ✅ **Responsive layouts** for desktop and mobile
+✅ **Admin tools** for data synchronization and backfill operations
+
+**Components Documented:**
+- 32 Admin UI components (tier, product, segment, campaign, sync management)
+- 2 User-facing components (product subscriptions, activity dashboard)
+- 1 Re-sync manager tool (manual sync, backfill, data corrections)
 
 **Next Steps:**
 1. Review this specification
@@ -1032,12 +1572,13 @@ This UI specification document provides:
 3. Use these exact component patterns for consistency
 
 **Related Documents:**
-- `TODO_LIST.md` - 78 task checklist
-- `CDP_WORKFLOWS.md` - Backend + UI workflows
+- `TODO_LIST.md` - 87 task checklist (updated with campaign metrics + backfill)
+- `CDP_WORKFLOWS.md` - Backend + UI workflows (includes metrics sync strategy)
+- `CDP_WORKFLOW_DIAGRAMS.md` - Visual system architecture
 - `CDP_PROJECT_PLAN.md` - Overall project plan
 
 ---
 
-**Document Version:** 1.0
+**Document Version:** 2.0 (Added ReSyncManager component)
 **Last Updated:** 2025-11-12
 **Status:** Ready for Implementation

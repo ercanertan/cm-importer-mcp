@@ -1701,6 +1701,589 @@ Your example (2,000 users):
 
 ---
 
+## Campaign Metrics Synchronization Strategy
+
+### Overview
+
+**Problem**: Campaign Monitor tracks email engagement (opens, clicks, bounces, unsubscribes) but this data lives in CM's system. The CDP needs to import and display these metrics to provide comprehensive campaign analytics in one unified interface.
+
+**Solution**: Hybrid webhook + API polling approach for real-time and reliable metrics import.
+
+### Architecture: Webhook + Polling Hybrid
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│           CAMPAIGN METRICS IMPORT ARCHITECTURE                   │
+└──────────────────────────────────────────────────────────────────┘
+
+Campaign Monitor                      CDP Backend
+─────────────────                     ───────────
+
+[Campaign Sent] ────────┐
+                        │
+[User Opens Email] ─────┼──► WEBHOOK ──────►  POST /webhooks/cm
+                        │    (Real-time)      │
+[User Clicks Link] ─────┤                     ├──► Store in
+                        │                     │    campaign_metrics
+[User Bounces] ─────────┤                     │    table
+                        │                     │
+[User Unsubscribes] ────┘                     ▼
+                                        Update Campaign
+                                        aggregates
+                                        (opens_count,
+                                         clicks_count)
+
+                         ┌────────────────────┐
+                         │  HOURLY POLLING    │
+                         │  (Backup + Missing)│
+                         └──────┬─────────────┘
+                                │
+CM API ◄────── FetchCampaignMetricsJob
+GET /campaigns/{id}/summary   │ (Laravel Scheduler)
+                               │ Every hour
+Returns:                       │
+- Opens count                  │
+- Unique opens                 ▼
+- Clicks count           Compare with
+- Unique clicks          stored metrics
+- Bounces                      │
+- Unsubscribes                 │
+                               ▼
+                        Fill gaps +
+                        validate totals
+```
+
+### Why Hybrid Approach?
+
+| Method | Pros | Cons | Use Case |
+|--------|------|------|----------|
+| **Webhooks Only** | Real-time, low API usage | Can miss events (network issues), no historical data | Not reliable alone |
+| **Polling Only** | Reliable, complete data | High API usage, not real-time | Expensive, slow |
+| **Hybrid** | Real-time + reliable, fills gaps | Requires both systems | Best of both worlds ✅ |
+
+---
+
+### Workflow 1: Real-Time Webhook Handler
+
+```
+User opens email in Campaign Monitor
+    │
+    ▼
+Campaign Monitor fires webhook
+    │
+    ▼
+POST /webhooks/campaign-monitor
+├── Headers:
+│   ├── X-CM-Signature: <hmac-sha256>
+│   └── Content-Type: application/json
+│
+├── Payload:
+│   {
+│     "event": "open",
+│     "campaign_id": "abc123",
+│     "subscriber_email": "user@example.com",
+│     "timestamp": "2025-11-12T14:30:00Z",
+│     "ip_address": "203.0.113.42",
+│     "user_agent": "Mozilla/5.0..."
+│   }
+│
+└── Verification:
+    ├── 1. Verify HMAC signature
+    │      hash_hmac('sha256', $payload, config('cm.webhook_secret'))
+    │
+    ├── 2. Validate campaign_id exists in campaigns table
+    │
+    ├── 3. Dispatch HandleCampaignMetricWebhook job
+    │      Queue: webhooks (high priority)
+    │
+    └── 4. Return 200 OK immediately (acknowledge receipt)
+
+HandleCampaignMetricWebhook Job:
+    │
+    ├──► 1. Find or create campaign_metrics record for today
+    │        WHERE campaign_id = X AND date = CURDATE()
+    │
+    ├──► 2. Increment appropriate counter:
+    │        - event = "open" → opens++
+    │        - event = "click" → clicks++
+    │        - event = "bounce" → bounces++
+    │        - event = "unsubscribe" → unsubscribes++
+    │
+    ├──► 3. Track unique events (if subscriber_email provided)
+    │        Check if this subscriber already counted today
+    │        If new → unique_opens++ or unique_clicks++
+    │
+    ├──► 4. Update Campaign model aggregates:
+    │        Campaign::find($campaignId)->increment('opens_count')
+    │
+    └──► 5. Log webhook event in webhook_logs table
+             For auditing and debugging
+```
+
+**Implementation**:
+
+```php
+// app/Http/Controllers/Webhooks/CampaignMonitorWebhookController.php
+
+public function handle(Request $request)
+{
+    // Verify webhook signature
+    if (!$this->verifySignature($request)) {
+        return response()->json(['error' => 'Invalid signature'], 403);
+    }
+
+    // Validate payload
+    $validated = $request->validate([
+        'event' => 'required|in:open,click,bounce,unsubscribe,subscribe',
+        'campaign_id' => 'required|string',
+        'subscriber_email' => 'required|email',
+        'timestamp' => 'required|date',
+    ]);
+
+    // Dispatch job (non-blocking)
+    HandleCampaignMetricWebhook::dispatch($validated);
+
+    return response()->json(['status' => 'received'], 200);
+}
+
+protected function verifySignature(Request $request): bool
+{
+    $signature = $request->header('X-CM-Signature');
+    $payload = $request->getContent();
+    $expected = hash_hmac('sha256', $payload, config('services.cm.webhook_secret'));
+
+    return hash_equals($expected, $signature);
+}
+```
+
+```php
+// app/Jobs/HandleCampaignMetricWebhook.php
+
+public function handle()
+{
+    $campaign = Campaign::where('cm_campaign_id', $this->data['campaign_id'])->first();
+
+    if (!$campaign) {
+        Log::warning('Webhook for unknown campaign', ['cm_campaign_id' => $this->data['campaign_id']]);
+        return;
+    }
+
+    // Find or create today's metrics record
+    $metrics = CampaignMetric::firstOrCreate(
+        [
+            'campaign_id' => $campaign->id,
+            'date' => today(),
+        ],
+        [
+            'opens' => 0,
+            'unique_opens' => 0,
+            'clicks' => 0,
+            'unique_clicks' => 0,
+            'bounces' => 0,
+            'unsubscribes' => 0,
+        ]
+    );
+
+    // Increment counters
+    match($this->data['event']) {
+        'open' => $metrics->increment('opens'),
+        'click' => $metrics->increment('clicks'),
+        'bounce' => $metrics->increment('bounces'),
+        'unsubscribe' => $metrics->increment('unsubscribes'),
+        default => null,
+    };
+
+    // Update campaign aggregates
+    $campaign->refreshMetrics();
+
+    // Log for auditing
+    WebhookLog::create([
+        'source' => 'campaign_monitor',
+        'event' => $this->data['event'],
+        'payload' => $this->data,
+        'processed_at' => now(),
+    ]);
+}
+```
+
+---
+
+### Workflow 2: Hourly Polling Job
+
+```
+Laravel Scheduler (every hour)
+    │
+    ▼
+FetchCampaignMetricsJob dispatched
+    │
+    ├──► 1. Get campaigns sent in last 24 hours
+    │        Campaign::where('sent_at', '>', now()->subHours(24))
+    │                 ->where('status', 'sent')
+    │                 ->orderBy('sent_at', 'desc')
+    │                 ->limit(10)
+    │                 ->get()
+    │
+    ├──► 2. For each campaign:
+    │        │
+    │        ├──► a. Fetch summary from CM API
+    │        │      GET /campaigns/{cm_campaign_id}/summary
+    │        │      {
+    │        │        "TotalOpens": 1250,
+    │        │        "UniqueOpens": 850,
+    │        │        "Clicks": 320,
+    │        │        "UniqueClicks": 180,
+    │        │        "Bounces": 45,
+    │        │        "Unsubscribed": 12
+    │        │      }
+    │        │
+    │        ├──► b. Compare with stored metrics total
+    │        │      $stored = CampaignMetric::where('campaign_id', $id)->sum('opens')
+    │        │      $cmTotal = $apiResponse['TotalOpens']
+    │        │
+    │        ├──► c. If discrepancy > 5%:
+    │        │      ├─ Log warning
+    │        │      ├─ Create adjustment record
+    │        │      └─ Update campaign aggregates to match CM
+    │        │
+    │        └──► d. Update Campaign model with authoritative totals
+    │               Campaign::find($id)->update([
+    │                 'opens_count' => $cmTotal['TotalOpens'],
+    │                 'unique_opens_count' => $cmTotal['UniqueOpens'],
+    │                 'clicks_count' => $cmTotal['Clicks'],
+    │                 'unique_clicks_count' => $cmTotal['UniqueClicks'],
+    │                 'bounce_count' => $cmTotal['Bounces'],
+    │                 'unsubscribe_count' => $cmTotal['Unsubscribed'],
+    │                 'last_metrics_sync' => now(),
+    │               ])
+    │
+    ├──► 3. Rate limiting:
+    │        Sleep 0.5s between API calls (max 120 calls/hour)
+    │
+    └──► 4. Log sync summary:
+             "Synced metrics for 10 campaigns, 2 discrepancies found"
+```
+
+**Implementation**:
+
+```php
+// app/Jobs/FetchCampaignMetricsJob.php
+
+public function handle(CampaignMetricsService $service)
+{
+    $campaigns = Campaign::where('sent_at', '>', now()->subHours(24))
+                         ->where('status', 'sent')
+                         ->orderBy('sent_at', 'desc')
+                         ->limit(10)
+                         ->get();
+
+    $synced = 0;
+    $discrepancies = 0;
+
+    foreach ($campaigns as $campaign) {
+        try {
+            // Fetch from CM API
+            $cmMetrics = $service->fetchMetricsFromCM($campaign->cm_campaign_id);
+
+            // Compare and update
+            $stored = $campaign->opens_count ?? 0;
+            $diff = abs($stored - $cmMetrics['TotalOpens']);
+            $discrepancy = $stored > 0 ? ($diff / $stored) * 100 : 0;
+
+            if ($discrepancy > 5) {
+                Log::warning('Metrics discrepancy detected', [
+                    'campaign_id' => $campaign->id,
+                    'stored_opens' => $stored,
+                    'cm_opens' => $cmMetrics['TotalOpens'],
+                    'diff_percent' => $discrepancy,
+                ]);
+                $discrepancies++;
+            }
+
+            // Update with authoritative CM data
+            $campaign->update([
+                'opens_count' => $cmMetrics['TotalOpens'],
+                'unique_opens_count' => $cmMetrics['UniqueOpens'],
+                'clicks_count' => $cmMetrics['Clicks'],
+                'unique_clicks_count' => $cmMetrics['UniqueClicks'],
+                'bounce_count' => $cmMetrics['Bounces'],
+                'unsubscribe_count' => $cmMetrics['Unsubscribed'],
+                'last_metrics_sync' => now(),
+            ]);
+
+            $synced++;
+
+            // Rate limiting
+            usleep(500000); // 0.5 second delay
+
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch campaign metrics', [
+                'campaign_id' => $campaign->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    Log::info('Campaign metrics sync complete', [
+        'synced' => $synced,
+        'discrepancies' => $discrepancies,
+    ]);
+}
+```
+
+---
+
+### Workflow 3: Historical Metrics Import (One-Time)
+
+```
+Admin runs command:
+php artisan cdp:import-historical-metrics --months=12
+    │
+    ▼
+ImportHistoricalCampaignMetrics command
+    │
+    ├──► 1. Fetch all CM campaigns from last 12 months
+    │        GET /campaigns?page=1&pagesize=1000
+    │        GET /campaigns?page=2&pagesize=1000
+    │        ...
+    │
+    ├──► 2. Filter campaigns already in campaigns table
+    │        Match by cm_campaign_id
+    │
+    ├──► 3. For each campaign not in CDP:
+    │        │
+    │        ├──► a. Fetch campaign details
+    │        │      GET /campaigns/{cm_campaign_id}
+    │        │
+    │        ├──► b. Fetch campaign summary (metrics)
+    │        │      GET /campaigns/{cm_campaign_id}/summary
+    │        │
+    │        ├──► c. Create Campaign record in CDP
+    │        │      Campaign::create([
+    │        │        'name' => $details['Name'],
+    │        │        'cm_campaign_id' => $cmId,
+    │        │        'sent_at' => $details['SentDate'],
+    │        │        'opens_count' => $summary['TotalOpens'],
+    │        │        'clicks_count' => $summary['Clicks'],
+    │        │        ...
+    │        │      ])
+    │        │
+    │        └──► d. Create campaign_metrics record
+    │               CampaignMetric::create([
+    │                 'campaign_id' => $campaign->id,
+    │                 'date' => $details['SentDate'],
+    │                 'opens' => $summary['TotalOpens'],
+    │                 'clicks' => $summary['Clicks'],
+    │                 ...
+    │               ])
+    │
+    ├──► 4. Progress bar:
+    │        Processing: ████████████░░░░░░░░ 60%
+    │        Campaigns imported: 45/75
+    │        Estimated time remaining: 2 minutes
+    │
+    └──► 5. Summary report:
+             ✓ Imported 75 historical campaigns
+             ✓ Total opens: 125,340
+             ✓ Total clicks: 23,450
+             ✓ Date range: 2024-01-01 to 2025-11-12
+```
+
+**Implementation**:
+
+```php
+// app/Console/Commands/ImportHistoricalCampaignMetrics.php
+
+protected $signature = 'cdp:import-historical-metrics {--months=12}';
+
+public function handle(CampaignMonitorService $cmService)
+{
+    $months = $this->option('months');
+    $startDate = now()->subMonths($months);
+
+    $this->info("Fetching CM campaigns from last {$months} months...");
+
+    // Fetch all campaigns from CM
+    $cmCampaigns = $cmService->fetchCampaignsSince($startDate);
+
+    $this->info("Found {$cmCampaigns->count()} campaigns in CM");
+
+    // Filter campaigns not in CDP
+    $existingIds = Campaign::pluck('cm_campaign_id')->toArray();
+    $newCampaigns = $cmCampaigns->reject(fn($c) =>
+        in_array($c['CampaignID'], $existingIds)
+    );
+
+    $this->info("Importing {$newCampaigns->count()} new campaigns...");
+
+    $bar = $this->output->createProgressBar($newCampaigns->count());
+
+    foreach ($newCampaigns as $cmCampaign) {
+        try {
+            // Fetch detailed metrics
+            $summary = $cmService->fetchCampaignSummary($cmCampaign['CampaignID']);
+
+            // Create campaign
+            $campaign = Campaign::create([
+                'name' => $cmCampaign['Name'],
+                'type' => 'external', // Not created by CDP
+                'cm_campaign_id' => $cmCampaign['CampaignID'],
+                'sent_at' => $cmCampaign['SentDate'],
+                'status' => 'sent',
+                'opens_count' => $summary['TotalOpens'] ?? 0,
+                'unique_opens_count' => $summary['UniqueOpens'] ?? 0,
+                'clicks_count' => $summary['Clicks'] ?? 0,
+                'unique_clicks_count' => $summary['UniqueClicks'] ?? 0,
+                'bounce_count' => $summary['Bounces'] ?? 0,
+                'unsubscribe_count' => $summary['Unsubscribed'] ?? 0,
+            ]);
+
+            // Create metrics record
+            CampaignMetric::create([
+                'campaign_id' => $campaign->id,
+                'date' => Carbon::parse($cmCampaign['SentDate'])->toDateString(),
+                'opens' => $summary['TotalOpens'] ?? 0,
+                'unique_opens' => $summary['UniqueOpens'] ?? 0,
+                'clicks' => $summary['Clicks'] ?? 0,
+                'unique_clicks' => $summary['UniqueClicks'] ?? 0,
+                'bounces' => $summary['Bounces'] ?? 0,
+                'unsubscribes' => $summary['Unsubscribed'] ?? 0,
+            ]);
+
+            $bar->advance();
+
+        } catch (\Exception $e) {
+            $this->error("Failed to import campaign {$cmCampaign['Name']}: {$e->getMessage()}");
+        }
+    }
+
+    $bar->finish();
+    $this->newLine(2);
+    $this->info('✓ Historical import complete!');
+}
+```
+
+---
+
+### Database Schema: campaign_metrics Table
+
+```php
+// database/migrations/YYYY_MM_DD_create_campaign_metrics_table.php
+
+Schema::create('campaign_metrics', function (Blueprint $table) {
+    $table->id();
+    $table->foreignId('campaign_id')->constrained()->cascadeOnDelete();
+    $table->date('date'); // Metrics grouped by date
+    $table->integer('opens')->default(0);
+    $table->integer('unique_opens')->default(0);
+    $table->integer('clicks')->default(0);
+    $table->integer('unique_clicks')->default(0);
+    $table->integer('bounces')->default(0);
+    $table->integer('unsubscribes')->default(0);
+    $table->integer('spam_reports')->default(0);
+    $table->timestamps();
+
+    // Composite index for efficient queries
+    $table->index(['campaign_id', 'date']);
+    $table->index('date');
+});
+```
+
+### Campaign Model Enhancements
+
+```php
+// Add to app/Models/Campaign.php migration
+
+$table->integer('opens_count')->default(0);
+$table->integer('unique_opens_count')->default(0);
+$table->integer('clicks_count')->default(0);
+$table->integer('unique_clicks_count')->default(0);
+$table->integer('bounce_count')->default(0);
+$table->integer('unsubscribe_count')->default(0);
+$table->integer('spam_report_count')->default(0);
+$table->timestamp('last_metrics_sync')->nullable();
+```
+
+```php
+// app/Models/Campaign.php
+
+class Campaign extends Model
+{
+    public function metrics()
+    {
+        return $this->hasMany(CampaignMetric::class);
+    }
+
+    /**
+     * Aggregate metrics from campaign_metrics table
+     */
+    public function refreshMetrics()
+    {
+        $this->update([
+            'opens_count' => $this->metrics()->sum('opens'),
+            'unique_opens_count' => $this->metrics()->max('unique_opens'),
+            'clicks_count' => $this->metrics()->sum('clicks'),
+            'unique_clicks_count' => $this->metrics()->max('unique_clicks'),
+            'bounce_count' => $this->metrics()->sum('bounces'),
+            'unsubscribe_count' => $this->metrics()->sum('unsubscribes'),
+            'last_metrics_sync' => now(),
+        ]);
+    }
+
+    /**
+     * Calculate open rate percentage
+     */
+    public function getOpenRateAttribute(): float
+    {
+        if ($this->recipient_count === 0) return 0;
+        return round(($this->unique_opens_count / $this->recipient_count) * 100, 2);
+    }
+
+    /**
+     * Calculate click rate percentage
+     */
+    public function getClickRateAttribute(): float
+    {
+        if ($this->recipient_count === 0) return 0;
+        return round(($this->unique_clicks_count / $this->recipient_count) * 100, 2);
+    }
+
+    /**
+     * Calculate click-to-open rate percentage
+     */
+    public function getClickToOpenRateAttribute(): float
+    {
+        if ($this->unique_opens_count === 0) return 0;
+        return round(($this->unique_clicks_count / $this->unique_opens_count) * 100, 2);
+    }
+}
+```
+
+---
+
+### API Usage Impact
+
+```
+Webhook Events (No API calls):
+├── Open events: ~5,000/day (real-time, instant)
+├── Click events: ~1,200/day (real-time, instant)
+├── Bounce events: ~50/day (real-time, instant)
+└── Unsubscribe events: ~20/day (real-time, instant)
+
+Hourly Polling Job:
+├── Campaigns checked: 10/hour (only recent campaigns)
+├── API calls: 10 × GET /campaigns/{id}/summary = 10 calls/hour
+└── Monthly total: 10 × 24 × 30 = 7,200 calls/month
+
+Historical Import (One-time):
+├── Fetch 12 months of campaigns: ~1 call (paginated)
+├── Fetch details for each: ~75 campaigns × 2 calls = 150 calls
+└── Total: ~150 calls (one-time setup)
+
+TOTAL MONTHLY (ongoing): ~7,200 API calls for metrics polling
+```
+
+---
+
 ## API Usage Summary
 
 ### Monthly Total (60K Users)
@@ -1724,11 +2307,17 @@ New User Registrations:
 Complex Campaigns (ad-hoc):
 └── ~5 campaigns × 7 calls avg = 35 calls/month
 
-TOTAL: ~478 API calls/month
-Daily average: ~16 API calls/day
+Campaign Metrics Polling:
+├── Hourly metrics fetch: 10 campaigns/hour × 24 × 30 = 7,200 calls/month
+├── Historical import (one-time): ~150 calls
+└── Subtotal: 7,200 calls/month (ongoing)
+
+TOTAL (without metrics): ~478 API calls/month
+TOTAL (with metrics polling): ~7,678 API calls/month
+Daily average: ~256 API calls/day
 ```
 
-**Well within Campaign Monitor's acceptable usage range.**
+**Note**: Campaign metrics use the majority of API quota. Webhooks handle real-time events with zero API calls. Polling is backup/validation and can be reduced to every 2-4 hours if API limits are a concern (reducing monthly calls to ~3,600).
 
 ---
 
