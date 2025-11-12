@@ -1571,14 +1571,641 @@ This UI specification document provides:
 2. Begin Phase 1 implementation (Tasks 1.1-1.14)
 3. Use these exact component patterns for consistency
 
+---
+
+## Campaign State Monitoring & Error Recovery UI
+
+### Component: CampaignDetail (Enhanced with Error States)
+
+**File:** `app/Livewire/Admin/Cdp/CampaignDetail.php`
+**View:** `resources/views/livewire/admin/cdp/campaign-detail.blade.php`
+**Route:** `/admin/cdp/campaigns/{id}`
+**Purpose:** Enhanced campaign detail view with comprehensive error state handling and manual recovery controls
+
+#### Component Properties
+
+```php
+class CampaignDetail extends Component
+{
+    use WithPagination;
+
+    public Campaign $campaign;
+    public $showCancelCleanupModal = false;
+    public $showRescheduleCleanupModal = false;
+    public $showRetryModal = false;
+    public $showMarkAsSentModal = false;
+
+    // Real-time updates
+    protected $listeners = ['refreshCampaign' => '$refresh'];
+
+    public function mount(int $id)
+    {
+        $this->campaign = Campaign::with([
+            'segment',
+            'metrics',
+            'template'
+        ])->findOrFail($id);
+    }
+
+    // === STATE MANAGEMENT METHODS ===
+
+    public function cancelCleanup()
+    {
+        if ($this->campaign->cleanup_job_id) {
+            try {
+                Queue::deleteJob($this->campaign->cleanup_job_id);
+
+                $this->campaign->update([
+                    'cleanup_job_id' => null,
+                    'campaign_tag_status' => 'sent'
+                ]);
+
+                session()->flash('success', 'Cleanup job cancelled successfully.');
+                $this->showCancelCleanupModal = false;
+            } catch (Throwable $e) {
+                session()->flash('error', 'Failed to cancel cleanup job: ' . $e->getMessage());
+            }
+        }
+    }
+
+    public function rescheduleCleanup()
+    {
+        // Cancel old cleanup if exists
+        if ($this->campaign->cleanup_job_id) {
+            try {
+                Queue::deleteJob($this->campaign->cleanup_job_id);
+            } catch (Throwable $e) {
+                Log::warning("Could not cancel old cleanup job: " . $e->getMessage());
+            }
+        }
+
+        // Dispatch new cleanup for 2 hours from NOW
+        $cleanupJob = CleanupCampaignTagJob::dispatch($this->campaign->id)
+            ->delay(now()->addHours(2))
+            ->onQueue('cm-cleanup');
+
+        $this->campaign->update([
+            'cleanup_job_id' => $cleanupJob->id,
+            'campaign_tag_status' => 'cleanup_scheduled'
+        ]);
+
+        session()->flash('success', 'Cleanup rescheduled for 2 hours from now.');
+        $this->showRescheduleCleanupModal = false;
+    }
+
+    public function retrySend()
+    {
+        // Dispatch new send job
+        TagAndSendCampaignJob::dispatch(
+            $this->campaign->id,
+            $this->campaign->segment->getUsers()->pluck('id')->toArray(),
+            $this->campaign->campaign_tag ?? DynamicTagService::generateTag($this->campaign)
+        )->onQueue('cm-campaigns');
+
+        session()->flash('success', 'Campaign send job dispatched. Refresh page to see status.');
+        $this->showRetryModal = false;
+    }
+
+    public function runCleanupNow()
+    {
+        // Dispatch cleanup job immediately (no delay)
+        CleanupCampaignTagJob::dispatch($this->campaign->id)
+            ->onQueue('cm-cleanup');
+
+        session()->flash('success', 'Cleanup job dispatched immediately.');
+    }
+
+    public function markAsSent()
+    {
+        $this->campaign->update([
+            'status' => 'sent',
+            'campaign_tag_status' => 'sent',
+            'sent_at' => now()
+        ]);
+
+        session()->flash('success', 'Campaign marked as sent.');
+        $this->showMarkAsSentModal = false;
+    }
+
+    // === COMPUTED PROPERTIES ===
+
+    public function getCleanupWarningProperty()
+    {
+        if ($this->campaign->campaign_tag_status !== 'cleanup_scheduled') {
+            return false;
+        }
+
+        if (!$this->campaign->campaign_tag_created_at) {
+            return false;
+        }
+
+        $hoursSinceSend = now()->diffInHours($this->campaign->campaign_tag_created_at);
+        return $hoursSinceSend < 2;
+    }
+
+    public function getTimeUntilCleanupProperty()
+    {
+        if (!$this->campaign->campaign_tag_created_at) {
+            return null;
+        }
+
+        $cleanupTime = Carbon::parse($this->campaign->campaign_tag_created_at)->addHours(2);
+        return $cleanupTime->diffForHumans();
+    }
+
+    public function getTimeSinceSendProperty()
+    {
+        if (!$this->campaign->sent_at) {
+            return null;
+        }
+
+        return Carbon::parse($this->campaign->sent_at)->diffForHumans();
+    }
+
+    public function render()
+    {
+        return view('livewire.admin.cdp.campaign-detail', [
+            'cleanupWarning' => $this->getCleanupWarningProperty(),
+            'timeUntilCleanup' => $this->getTimeUntilCleanupProperty(),
+            'timeSinceSend' => $this->getTimeSinceSendProperty(),
+        ]);
+    }
+}
+```
+
+#### Blade Template (Enhanced)
+
+```blade
+<div wire:poll.5s class="space-y-6">
+    {{-- Flash Messages --}}
+    @if (session()->has('success'))
+        <flux:alert type="success" dismissible>
+            {{ session('success') }}
+        </flux:alert>
+    @endif
+
+    @if (session()->has('error'))
+        <flux:alert type="error" dismissible>
+            {{ session('error') }}
+        </flux:alert>
+    @endif
+
+    {{-- Campaign Header with State Badge --}}
+    <div class="flex items-start justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
+                {{ $campaign->name }}
+            </h1>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Campaign #{{ $campaign->id }}
+            </p>
+        </div>
+
+        {{-- State Badge (Dynamic) --}}
+        <div>
+            @switch($campaign->campaign_tag_status)
+                @case('pending')
+                    <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                 bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300">
+                        <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"/>
+                        </svg>
+                        Pending
+                    </span>
+                    @break
+
+                @case('tagging')
+                    <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                        <svg class="w-4 h-4 mr-1.5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10 3a1 1 0 011 1v5a1 1 0 11-2 0V4a1 1 0 011-1z"/>
+                        </svg>
+                        Tagging Users
+                    </span>
+                    @break
+
+                @case('tagged')
+                    <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                 bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                        <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z"/>
+                        </svg>
+                        Tagged
+                    </span>
+                    @break
+
+                @case('sending')
+                    <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
+                        <svg class="w-4 h-4 mr-1.5 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/>
+                        </svg>
+                        Sending
+                    </span>
+                    @break
+
+                @case('sent')
+                    <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                        <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+                        </svg>
+                        Sent
+                    </span>
+                    @break
+
+                @case('cleanup_scheduled')
+                    @if($cleanupWarning)
+                        <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                     bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">
+                            <svg class="w-4 h-4 mr-1.5 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"/>
+                            </svg>
+                            Cleanup Scheduled ⚠️
+                        </span>
+                    @else
+                        <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                     bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
+                            <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"/>
+                            </svg>
+                            Cleanup Scheduled
+                        </span>
+                    @endif
+                    @break
+
+                @case('cleaned')
+                    <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                 bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                        <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
+                        </svg>
+                        Cleaned
+                    </span>
+                    @break
+
+                @case('failed')
+                    <span class="inline-flex items-center px-3 py-1 text-sm font-medium rounded-md
+                                 bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
+                        <svg class="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"/>
+                        </svg>
+                        Failed
+                    </span>
+                    @break
+            @endswitch
+        </div>
+    </div>
+
+    {{-- ERROR STATE: Campaign Failed --}}
+    @if($campaign->campaign_tag_status === 'failed')
+        <div class="rounded-lg bg-red-50 border border-red-200 p-6 dark:bg-red-900/20 dark:border-red-800">
+            <div class="flex items-start">
+                <svg class="w-6 h-6 text-red-600 dark:text-red-400 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"/>
+                </svg>
+
+                <div class="ml-4 flex-1">
+                    <h3 class="text-sm font-semibold text-red-800 dark:text-red-300">
+                        Campaign Send Failed
+                    </h3>
+
+                    <div class="mt-2 text-sm text-red-700 dark:text-red-400">
+                        <p>The campaign failed to send after multiple attempts.</p>
+
+                        {{-- Timeline of state transitions --}}
+                        <div class="mt-3 space-y-1 font-mono text-xs">
+                            <div>{{ $campaign->created_at->format('H:i') }} — Created</div>
+                            <div>{{ $campaign->updated_at->format('H:i') }} — Failed at state: <strong>{{ $campaign->campaign_tag_status }}</strong></div>
+                        </div>
+
+                        @if($campaign->last_error)
+                            <div class="mt-3 p-3 bg-red-100 dark:bg-red-900/40 rounded text-xs">
+                                <strong>Error:</strong> {{ $campaign->last_error }}
+                            </div>
+                        @endif
+                    </div>
+
+                    <div class="mt-4 flex gap-3">
+                        <flux:button wire:click="$set('showRetryModal', true)" size="sm" variant="filled">
+                            Retry Send
+                        </flux:button>
+
+                        <flux:button wire:click="$set('showMarkAsSentModal', true)" size="sm" variant="ghost">
+                            Mark as Sent
+                        </flux:button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- WARNING: Cleanup Scheduled Too Early --}}
+    @if($campaign->campaign_tag_status === 'cleanup_scheduled' && $cleanupWarning)
+        <div class="rounded-lg bg-orange-50 border border-orange-200 p-6 dark:bg-orange-900/20 dark:border-orange-800">
+            <div class="flex items-start">
+                <svg class="w-6 h-6 text-orange-600 dark:text-orange-400 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"/>
+                </svg>
+
+                <div class="ml-4 flex-1">
+                    <h3 class="text-sm font-semibold text-orange-800 dark:text-orange-300">
+                        Warning: Cleanup Scheduled Less Than 2 Hours After Send
+                    </h3>
+
+                    <div class="mt-2 text-sm text-orange-700 dark:text-orange-400">
+                        <p>
+                            Sent: {{ $timeSinceSend }}<br>
+                            Cleanup: {{ $timeUntilCleanup }}
+                        </p>
+                        <p class="mt-2">
+                            Campaign metrics may not be fully collected yet. Consider rescheduling cleanup.
+                        </p>
+                    </div>
+
+                    <div class="mt-4 flex gap-3">
+                        <flux:button wire:click="$set('showRescheduleCleanupModal', true)" size="sm" variant="filled">
+                            Reschedule Cleanup
+                        </flux:button>
+
+                        <flux:button wire:click="$set('showCancelCleanupModal', true)" size="sm" variant="ghost">
+                            Cancel Cleanup
+                        </flux:button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Manual Recovery Controls (for cleanup_scheduled state) --}}
+    @if($campaign->campaign_tag_status === 'cleanup_scheduled' && !$cleanupWarning)
+        <div class="rounded-lg bg-purple-50 border border-purple-200 p-4 dark:bg-purple-900/20 dark:border-purple-800">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center text-sm text-purple-800 dark:text-purple-300">
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z"/>
+                    </svg>
+                    <span>Cleanup scheduled: <strong>{{ $timeUntilCleanup }}</strong></span>
+                </div>
+
+                <div class="flex gap-2">
+                    <flux:button wire:click="$set('showRescheduleCleanupModal', true)" size="sm" variant="ghost">
+                        Reschedule
+                    </flux:button>
+
+                    <flux:button wire:click="$set('showCancelCleanupModal', true)" size="sm" variant="ghost">
+                        Cancel
+                    </flux:button>
+
+                    <flux:button wire:click="runCleanupNow" size="sm" variant="ghost">
+                        Run Now
+                    </flux:button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- State Timeline Visualization --}}
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Campaign State Timeline
+        </h2>
+
+        <div class="relative">
+            {{-- Timeline --}}
+            <div class="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700"></div>
+
+            <div class="space-y-4">
+                {{-- Each state in timeline --}}
+                <div class="relative flex items-start pl-10">
+                    <div class="absolute left-0 w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                        <svg class="w-4 h-4 text-gray-600 dark:text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="text-sm font-medium text-gray-900 dark:text-white">Created</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">{{ $campaign->created_at->format('M d, Y H:i') }}</p>
+                    </div>
+                </div>
+
+                @if($campaign->sent_at)
+                    <div class="relative flex items-start pl-10">
+                        <div class="absolute left-0 w-8 h-8 rounded-full bg-green-500 flex items-center justify-center">
+                            <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">Sent</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">{{ $campaign->sent_at->format('M d, Y H:i') }}</p>
+                        </div>
+                    </div>
+                @endif
+
+                @if($campaign->cleanup_completed_at)
+                    <div class="relative flex items-start pl-10">
+                        <div class="absolute left-0 w-8 h-8 rounded-full bg-gray-400 flex items-center justify-center">
+                            <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="text-sm font-medium text-gray-900 dark:text-white">Cleaned</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">{{ $campaign->cleanup_completed_at->format('M d, Y H:i') }}</p>
+                        </div>
+                    </div>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    {{-- Remaining campaign details (metrics, recipients, etc.) --}}
+    {{-- ... existing campaign detail sections ... --}}
+
+    {{-- MODALS --}}
+
+    {{-- Retry Send Modal --}}
+    @if($showRetryModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" wire:click.self="$set('showRetryModal', false)">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                    Retry Campaign Send?
+                </h3>
+
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                    This will re-dispatch the send job. The job will resume from the last successful step.
+                </p>
+
+                <div class="text-sm text-gray-700 dark:text-gray-300 mb-6">
+                    <strong>Recipients:</strong> {{ number_format($campaign->recipient_count ?? 0) }} users
+                </div>
+
+                <div class="flex justify-end gap-3">
+                    <flux:button wire:click="$set('showRetryModal', false)" variant="ghost">
+                        Cancel
+                    </flux:button>
+
+                    <flux:button wire:click="retrySend" variant="filled">
+                        Confirm & Retry
+                    </flux:button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Reschedule Cleanup Modal --}}
+    @if($showRescheduleCleanupModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" wire:click.self="$set('showRescheduleCleanupModal', false)">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                    Reschedule Cleanup?
+                </h3>
+
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                    This will cancel the current cleanup job and schedule a new one for 2 hours from now.
+                </p>
+
+                <div class="flex justify-end gap-3">
+                    <flux:button wire:click="$set('showRescheduleCleanupModal', false)" variant="ghost">
+                        Cancel
+                    </flux:button>
+
+                    <flux:button wire:click="rescheduleCleanup" variant="filled">
+                        Confirm & Reschedule
+                    </flux:button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    {{-- Cancel Cleanup Modal --}}
+    @if($showCancelCleanupModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" wire:click.self="$set('showCancelCleanupModal', false)">
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                    Cancel Cleanup?
+                </h3>
+
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                    This will permanently cancel the cleanup job. Tags will remain and the segment will not be deleted.
+                </p>
+
+                <p class="text-sm text-orange-600 dark:text-orange-400 mb-6">
+                    ⚠️ You will need to manually clean up this campaign later.
+                </p>
+
+                <div class="flex justify-end gap-3">
+                    <flux:button wire:click="$set('showCancelCleanupModal', false)" variant="ghost">
+                        Cancel
+                    </flux:button>
+
+                    <flux:button wire:click="cancelCleanup" variant="filled">
+                        Confirm & Cancel Cleanup
+                    </flux:button>
+                </div>
+            </div>
+        </div>
+    @endif
+</div>
+```
+
+#### State Badge Component (Reusable)
+
+For consistency across the application, extract the state badge into a reusable Blade component:
+
+**File:** `resources/views/components/campaign-state-badge.blade.php`
+
+```blade
+@props(['state' => 'pending', 'warning' => false])
+
+@php
+$configs = [
+    'pending' => [
+        'bg' => 'bg-gray-100 dark:bg-gray-800',
+        'text' => 'text-gray-800 dark:text-gray-300',
+        'icon' => 'clock',
+        'label' => 'Pending',
+        'animate' => false
+    ],
+    'tagging' => [
+        'bg' => 'bg-blue-100 dark:bg-blue-900/30',
+        'text' => 'text-blue-800 dark:text-blue-300',
+        'icon' => 'spinner',
+        'label' => 'Tagging',
+        'animate' => 'spin'
+    ],
+    'tagged' => [
+        'bg' => 'bg-blue-100 dark:bg-blue-900/30',
+        'text' => 'text-blue-800 dark:text-blue-300',
+        'icon' => 'tag',
+        'label' => 'Tagged',
+        'animate' => false
+    ],
+    'sending' => [
+        'bg' => 'bg-yellow-100 dark:bg-yellow-900/30',
+        'text' => 'text-yellow-800 dark:text-yellow-300',
+        'icon' => 'paper-plane',
+        'label' => 'Sending',
+        'animate' => 'pulse'
+    ],
+    'sent' => [
+        'bg' => 'bg-green-100 dark:bg-green-900/30',
+        'text' => 'text-green-800 dark:text-green-300',
+        'icon' => 'check-circle',
+        'label' => 'Sent',
+        'animate' => false
+    ],
+    'cleanup_scheduled' => [
+        'bg' => $warning ? 'bg-orange-100 dark:bg-orange-900/30' : 'bg-purple-100 dark:bg-purple-900/30',
+        'text' => $warning ? 'text-orange-800 dark:text-orange-300' : 'text-purple-800 dark:text-purple-300',
+        'icon' => $warning ? 'warning' : 'clock',
+        'label' => 'Cleanup Scheduled' . ($warning ? ' ⚠️' : ''),
+        'animate' => $warning ? 'pulse' : false
+    ],
+    'cleaned' => [
+        'bg' => 'bg-gray-100 dark:bg-gray-800',
+        'text' => 'text-gray-600 dark:text-gray-400',
+        'icon' => 'check',
+        'label' => 'Cleaned',
+        'animate' => false
+    ],
+    'failed' => [
+        'bg' => 'bg-red-100 dark:bg-red-900/30',
+        'text' => 'text-red-800 dark:text-red-300',
+        'icon' => 'x-circle',
+        'label' => 'Failed',
+        'animate' => false
+    ],
+];
+
+$config = $configs[$state] ?? $configs['pending'];
+@endphp
+
+<span {{ $attributes->merge(['class' => "inline-flex items-center px-2 py-1 text-xs font-medium rounded-md {$config['bg']} {$config['text']}"]) }}>
+    <svg class="w-3 h-3 mr-1 {{ $config['animate'] ? 'animate-' . $config['animate'] : '' }}"
+         fill="currentColor" viewBox="0 0 20 20">
+        {{-- SVG path based on icon type --}}
+    </svg>
+    {{ $config['label'] }}
+</span>
+```
+
+**Usage:**
+```blade
+<x-campaign-state-badge :state="$campaign->campaign_tag_status" :warning="$cleanupWarning" />
+```
+
+---
+
 **Related Documents:**
-- `TODO_LIST.md` - 87 task checklist (updated with campaign metrics + backfill)
-- `CDP_WORKFLOWS.md` - Backend + UI workflows (includes metrics sync strategy)
-- `CDP_WORKFLOW_DIAGRAMS.md` - Visual system architecture
+- `TODO_LIST.md` - 92 task checklist (updated with campaign metrics + backfill + error handling)
+- `CDP_WORKFLOWS.md` - Backend + UI workflows (includes metrics sync + job failure handling)
+- `CDP_WORKFLOW_DIAGRAMS.md` - Visual system architecture (includes failure recovery workflows)
 - `CDP_PROJECT_PLAN.md` - Overall project plan
 
 ---
 
-**Document Version:** 2.0 (Added ReSyncManager component)
+**Document Version:** 3.0 (Added Campaign Error State Monitoring & Recovery UI)
 **Last Updated:** 2025-11-12
 **Status:** Ready for Implementation

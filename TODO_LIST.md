@@ -1,7 +1,7 @@
 # CDP Project - Complete TODO List (UI-First Approach)
 
 **Last Updated:** 2025-11-12
-**Total Tasks:** 87 (reorganized with UI-first approach + campaign metrics + backfill features)
+**Total Tasks:** 92 (reorganized with UI-first approach + campaign metrics + backfill features + job error handling)
 **Status:** Ready to Begin
 **Tech Stack:** Laravel 12 + Livewire 3.6 + Flux Pro + Tailwind v4
 
@@ -262,7 +262,7 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 
 ---
 
-## 🔄 Phase 4: Campaign Monitor API Integration (Weeks 7-9) - 18 tasks
+## 🔄 Phase 4: Campaign Monitor API Integration (Weeks 7-9) - 23 tasks
 
 ### Core API Setup
 - [ ] **4.1** Install Campaign Monitor API client
@@ -413,6 +413,76 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
   - Calculated Fields: `open_rate` (accessor), `click_rate` (accessor), `click_to_open_rate` (accessor)
   - Relationships: `hasMany(CampaignMetric::class)`
   - Methods: `refreshMetrics()` to aggregate from campaign_metrics table
+
+### Job Failure Handling & Error Recovery
+- [ ] **4.24** Add campaign state tracking to campaigns table
+  - File: Create migration `add_campaign_state_tracking_to_campaigns_table.php`
+  - New Fields:
+    - `campaign_tag_status` (enum: 'pending', 'tagging', 'tagged', 'sending', 'sent', 'cleanup_scheduled', 'cleaned', 'failed')
+    - `campaign_tag_created_at` (timestamp, nullable) - When tags were created
+    - `cleanup_job_id` (string, nullable) - Store dispatched cleanup job ID for cancellation
+  - Indexes: Index on `campaign_tag_status`, composite index on (`campaign_tag_status`, `campaign_tag_created_at`)
+  - Purpose: Track campaign job lifecycle, prevent race conditions, enable recovery
+  - Dependencies: None (standalone enhancement)
+  - Estimated: 2 hours
+
+- [ ] **4.25** Implement state machine logic in TagAndSendCampaignJob
+  - File: Update `app/Jobs/TagAndSendCampaignJob.php`
+  - Changes:
+    - Wrap entire job in DB transaction with pessimistic locking (`lockForUpdate()`)
+    - Update state at each step: 'pending' → 'tagging' → 'tagged' → 'sending' → 'sent'
+    - Check state on job start: If already 'sent', skip execution (idempotency)
+    - Store `campaign_tag_created_at` timestamp when tagging completes
+    - Cancel previous cleanup job if exists (using `cleanup_job_id`)
+    - Dispatch new cleanup job and store its ID
+    - Update state to 'cleanup_scheduled' after successful send
+  - Error Handling: On failure at any step, mark state as 'failed' and cancel cleanup
+  - Logging: Log state transitions with campaign ID and step details
+  - Dependencies: Task 4.24 (database fields)
+  - Estimated: 3 hours
+
+- [ ] **4.26** Add safety checks to CleanupCampaignTagJob
+  - File: Update `app/Jobs/CleanupCampaignTagJob.php`
+  - Safety Checks (all must pass before cleanup):
+    1. State validation: Campaign must be in 'cleanup_scheduled' state
+    2. Time validation: At least 2 hours must have passed since `campaign_tag_created_at`
+    3. Job ID validation: Current job ID must match `cleanup_job_id` (prevent stale jobs)
+  - Reschedule Logic: If time validation fails, reschedule for (2 hours - elapsed time) from now
+  - Abort Logic: If state or job ID validation fails, log warning and abort (don't fail job)
+  - Success: Update state to 'cleaned', clear `cleanup_job_id`, set `cleanup_completed_at`
+  - Logging: Comprehensive logs for all safety check results
+  - Dependencies: Task 4.24, 4.25
+  - Estimated: 2 hours
+
+- [ ] **4.27** Implement failed job handler with cleanup job cancellation
+  - File: Update `app/Jobs/TagAndSendCampaignJob.php`
+  - Add `failed(Throwable $exception)` method:
+    - Load campaign with lockForUpdate()
+    - Cancel cleanup job if `cleanup_job_id` exists (use Queue::deleteJob())
+    - Update campaign state to 'failed'
+    - Clear `cleanup_job_id`
+    - Log full exception details with stack trace
+    - Dispatch notification to admins (CampaignSendFailedNotification)
+  - Notification Content: Campaign name, failure reason, step where failed, retry count
+  - Dependencies: Task 4.24, 4.25
+  - Estimated: 2 hours
+
+- [ ] **4.28** Add campaign state monitoring to CampaignDetail UI
+  - File: Update `app/Livewire/Admin/Cdp/CampaignDetail.php`
+  - UI Enhancements:
+    - State badge with color coding (pending: gray, tagging: blue, sending: yellow, sent: green, failed: red)
+    - Timeline visualization showing state transitions with timestamps
+    - For 'cleanup_scheduled' state: Show countdown timer to cleanup (warn if < 30 minutes since send)
+    - For 'failed' state: Show error message, failure step, retry button
+  - Manual Controls:
+    - [Cancel Cleanup] button: Visible if state is 'cleanup_scheduled', cancels cleanup job
+    - [Reschedule Cleanup] button: Reschedule cleanup for 2 hours from now
+    - [Retry Send] button: Visible if state is 'failed', re-dispatches TagAndSendCampaignJob
+    - [Mark as Cleaned] button: Manually mark cleanup as complete (emergency use)
+  - Real-time Updates: Use `wire:poll.5s` for state and timer updates
+  - Warning Badge: "⚠️ Cleanup scheduled too early!" if cleanup < 2 hours from send
+  - Dependencies: Task 4.24-4.27, existing CampaignDetail component (5.15)
+  - Estimated: 3 hours
 
 ---
 
@@ -677,25 +747,29 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 
 ## 📈 TASK SUMMARY BY TYPE
 
-### UI/Frontend (Livewire + Flux) - 33 tasks
-**Admin UI:** 1.5-1.7, 1.8-1.10, 2.4-2.6, 2.9-2.10, 3.4-3.12, 4.15-4.18, 5.5-5.16, 6.22
+### UI/Frontend (Livewire + Flux) - 34 tasks
+**Admin UI:** 1.5-1.7, 1.8-1.10, 2.4-2.6, 2.9-2.10, 3.4-3.12, 4.15-4.18, 4.28, 5.5-5.16, 6.22
 **User-Facing UI:** 1.11-1.12, 2.7-2.8
 **Navigation:** 1.13-1.14
 
-### Backend (Models, Services, Jobs) - 34 tasks
+### Backend (Models, Services, Jobs) - 38 tasks
 **Models:** 1.1-1.4, 2.1, 3.1, 5.1-5.2
 **Services:** 2.2, 3.2-3.3, 4.2, 4.4, 4.10, 4.14, 4.20
-**Jobs:** 2.3, 4.5-4.6, 4.9, 4.11-4.12, 4.21, 5.3
+**Jobs:** 2.3, 4.5-4.6, 4.9, 4.11-4.12, 4.21, 4.25-4.27, 5.3
 **Events/Listeners:** 4.7-4.8
 **Webhooks:** 4.13
 **Scheduler:** 5.4
 **Commands:** 4.22, 6.19-6.21
+**Migrations:** 4.24 (campaign state tracking)
 
 ### API Integration - 4 tasks
 4.1, 4.3, 4.20, 6.15
 
 ### Campaign Metrics - 5 tasks
 4.19-4.23
+
+### Job Error Handling & Recovery - 5 tasks
+4.24-4.28
 
 ### Testing - 5 tasks
 6.7-6.11
@@ -738,8 +812,9 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 1. Tasks 4.10-4.12 (Dynamic tags)
 2. Tasks 4.13-4.14 (Webhooks)
 3. Tasks 4.19-4.23 (Campaign metrics import)
-4. Tasks 5.1-5.4 (Recurring backend)
-5. Tasks 5.5-5.7 (Template UI)
+4. Tasks 4.24-4.28 (Job error handling)
+5. Tasks 5.1-5.4 (Recurring backend)
+6. Tasks 5.5-5.7 (Template UI)
 
 ### Week 5: Campaign Builder
 1. Tasks 5.8-5.12 (Campaign wizard)
@@ -760,6 +835,7 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 - **Campaign Builder (5.8)** requires: Segments (3.1-3.7), CM API (4.1-4.3), Templates (5.1)
 - **Sync UI (4.15)** requires: All sync jobs (4.4-4.12)
 - **Campaign Metrics (4.19-4.23)** requires: Campaign model (5.2), CM API (4.1), Webhooks (4.13-4.14)
+- **Job Error Handling (4.24-4.28)** requires: TagAndSendCampaignJob (4.11), CleanupCampaignTagJob (4.12), CampaignDetail UI (5.15)
 - **Data Migration (6.18)** requires: All Phase 1-5 backend tasks
 - **Backfill Commands (6.19-6.21)** require: Data migration (6.18), Event/Product models (2.1, 1.3)
 - **Re-sync Tool (6.22)** requires: All sync infrastructure (4.4-4.9), Metrics system (4.19-4.23)
@@ -776,14 +852,15 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 - **Phase 1:** 48 hours (14 tasks × ~3.5h avg)
 - **Phase 2:** 36 hours (10 tasks × ~3.6h avg)
 - **Phase 3:** 40 hours (12 tasks × ~3.3h avg)
-- **Phase 4:** 82 hours (23 tasks × ~3.6h avg) - includes campaign metrics infrastructure
+- **Phase 4:** 94 hours (28 tasks × ~3.4h avg) - includes campaign metrics + job error handling
 - **Phase 5:** 56 hours (16 tasks × ~3.5h avg)
 - **Phase 6:** 66 hours (22 tasks × ~3.0h avg) - includes backfill & re-sync tools
 
-**Total: ~328 hours (~14 weeks at 24 hours/week)**
+**Total: ~340 hours (~14-15 weeks at 24 hours/week)**
 
 **New Features Added:**
 - Campaign Metrics Import & Storage: +18 hours (Tasks 4.19-4.23)
+- Job Failure Handling & Recovery: +12 hours (Tasks 4.24-4.28)
 - Backfill & Data Quality Tools: +14 hours (Tasks 6.19-6.22)
 
 ---

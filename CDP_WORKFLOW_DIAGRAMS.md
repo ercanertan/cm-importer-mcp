@@ -2244,6 +2244,613 @@ activity_score_30d from audit_logs without calling CM API)
 
 ---
 
-**Document Status:** Historical Reference - Updated with Campaign Metrics, Backfill & Re-Sync
+## Campaign Job Failure & Recovery Workflows
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│         CAMPAIGN STATE MACHINE (Job Failure Handling)            │
+└───────────────────────────────────────────────────────────────────┘
+
+STATE DIAGRAM
+─────────────
+
+                    ┌──────────────┐
+                    │   pending    │
+                    └──────┬───────┘
+                           │ TagAndSendCampaignJob starts
+                           ▼
+                    ┌──────────────┐
+                    │   tagging    │─────────────────┐
+                    └──────┬───────┘                 │
+                           │                         │ Fails during
+                           │ Users tagged            │ tagging
+                           │ successfully            │
+                           ▼                         ▼
+                    ┌──────────────┐         ┌─────────────┐
+                    │    tagged    │─────────│   failed    │
+                    └──────┬───────┘         └─────────────┘
+                           │                         ▲
+                           │ CM segment              │
+                           │ created                 │ Fails during
+                           ▼                         │ segment
+                    ┌──────────────┐                │ creation
+                    │   sending    │────────────────┘
+                    └──────┬───────┘
+                           │
+                           │ Campaign
+                           │ sent via CM
+                           ▼
+                    ┌──────────────┐
+                    │     sent     │
+                    └──────┬───────┘
+                           │
+                           │ Cleanup job
+                           │ dispatched
+                           ▼
+              ┌────────────────────────┐
+              │  cleanup_scheduled     │
+              └────────────┬───────────┘
+                           │
+                           │ After 2+ hours
+                           ▼
+                    ┌──────────────┐
+                    │   cleaned    │
+                    └──────────────┘
+
+
+RETRY LOGIC
+───────────
+
+When job retries after failure:
+
+1. Check current state
+   ├─ If state = 'sent' → Skip execution (idempotent)
+   ├─ If state = 'tagging' → Resume from tagging step
+   ├─ If state = 'tagged' → Skip tagging, resume from segment creation
+   └─ If state = 'sending' → Skip tagging & segment, resume from send
+
+2. Cancel old cleanup job if exists
+   └─ Use cleanup_job_id to locate and delete previous cleanup job
+
+3. Execute remaining steps
+
+4. Dispatch NEW cleanup job
+   └─ Schedule for 2 hours from NOW (not from original send time)
+
+
+TERMINAL STATES
+───────────────
+
+Terminal (cannot transition out):
+├─ cleaned ✓ (Success path)
+└─ failed ✗ (Error path, requires manual intervention)
+
+Non-terminal (can be retried):
+├─ pending
+├─ tagging
+├─ tagged
+├─ sending
+├─ sent
+└─ cleanup_scheduled
+```
+
+---
+
+## Failure Scenario #1: Send Fails, Cleanup Scheduled
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│     SCENARIO 1: Send Job Fails, Cleanup Still Scheduled          │
+└───────────────────────────────────────────────────────────────────┘
+
+TIME      EVENT                                    STATE              CLEANUP STATUS
+────      ─────                                    ─────              ──────────────
+
+14:00  ► Job starts                                pending            None
+       │
+       ├──► Tag 2,345 users                        tagging            None
+       │    ├─ Batch 1: 1,000 users → CM
+       │    ├─ Batch 2: 1,000 users → CM
+       │    └─ Batch 3: 345 users → CM
+       │
+14:02  ├──► Tagging complete                       tagged             None
+       │    └─ campaign_tag_created_at = 14:02
+       │
+       ├──► Create CM segment                      tagged             None
+       │    └─ segment_id = ABC123
+       │
+14:03  ├──► Send campaign via CM API               sending            None
+       │    └─ ❌ NETWORK ERROR!
+       │
+       └──► Job FAILS                               failed             None
+            ├─ failed() handler called
+            ├─ cleanup_job_id = null (no cleanup scheduled)
+            ├─ State set to 'failed'
+            └─ Admin notification sent
+
+       ──────────────────────────────────────────────────────────────
+
+15:50  ► Admin clicks "Retry Send"                 failed             None
+       │
+       └──► New TagAndSendCampaignJob dispatched    failed             None
+
+15:51  ► Job starts (Retry #1)                     failed             None
+       │
+       ├──► Check state = 'failed'                 failed             None
+       │    └─ Not 'sent', proceed with execution
+       │
+       ├──► Check current step                      failed             None
+       │    └─ State shows we failed at 'sending'
+       │
+       ├──► Skip tagging (already done)            failed             None
+       │    └─ State is 'failed', but we know users are tagged
+       │
+       ├──► Skip segment creation (already done)    failed             None
+       │    └─ cm_segment_id exists
+       │
+15:52  ├──► Resume from send step                  sending            None
+       │    └─ Send campaign via CM API → ✓ Success!
+       │
+       ├──► Mark as sent                            sent               None
+       │    ├─ status = 'sent'
+       │    ├─ sent_at = 15:52
+       │    └─ campaign_tag_status = 'sent'
+       │
+       ├──► Cancel old cleanup (none exists)        sent               None
+       │
+       └──► Dispatch cleanup job                    cleanup_scheduled  Job ID: XYZ789
+            ├─ Delay: 2 hours from NOW (17:52)
+            └─ cleanup_job_id = XYZ789
+
+       ──────────────────────────────────────────────────────────────
+
+17:52  ► CleanupCampaignTagJob runs                cleanup_scheduled  Job ID: XYZ789
+       │
+       ├──► Safety Check #1: State                 cleanup_scheduled  ✓ Pass
+       │    └─ Expected: cleanup_scheduled, Actual: cleanup_scheduled
+       │
+       ├──► Safety Check #2: Time                  cleanup_scheduled  ✓ Pass
+       │    └─ Time since tag created: 3h 50m (>2h required)
+       │
+       ├──► Safety Check #3: Job ID                cleanup_scheduled  ✓ Pass
+       │    └─ Expected: XYZ789, Actual: XYZ789
+       │
+       ├──► Clear tags from users                  cleanup_scheduled  Processing
+       │
+       ├──► Delete CM segment ABC123               cleanup_scheduled  Processing
+       │
+       └──► Mark as cleaned                         cleaned            None
+            ├─ cleanup_completed_at = 17:52
+            └─ cleanup_job_id = null
+
+✓ SUCCESS: Campaign sent successfully and cleaned up properly after 2 hours
+```
+
+---
+
+## Failure Scenario #2: Job Retried Before Original Cleanup
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│   SCENARIO 2: Multiple Retries, Cleanup Job Cancellation         │
+└───────────────────────────────────────────────────────────────────┘
+
+TIME      EVENT                                    STATE              CLEANUP STATUS
+────      ─────                                    ─────              ──────────────
+
+14:00  ► Job starts (Attempt #1)                   pending            None
+       │
+14:02  ├──► Tagging complete                       tagged             None
+       │
+14:03  └──► ❌ FAILS at send                       failed             None
+            └─ No cleanup scheduled (never reached that step)
+
+       ──────────────────────────────────────────────────────────────
+
+14:15  ► Job retries automatically (Attempt #2)    failed             None
+       │
+14:16  ├──► Tagging complete (idempotent)          tagged             None
+       │
+14:17  └──► ❌ FAILS at send again                 failed             None
+            └─ Still no cleanup scheduled
+
+       ──────────────────────────────────────────────────────────────
+
+14:30  ► Job retries automatically (Attempt #3)    failed             None
+       │
+14:31  ├──► Tagging complete                       tagged             None
+       │
+14:32  ├──► Send succeeds! ✓                       sent               None
+       │
+       ├──► Dispatch cleanup                        cleanup_scheduled  Job ID: ABC123
+       │    ├─ Delay: 2 hours (16:32)
+       │    └─ cleanup_job_id = ABC123
+       │
+       └──► State updated                           cleanup_scheduled  Job ID: ABC123
+
+       ──────────────────────────────────────────────────────────────
+
+14:45  ► Admin clicks "Resend" (unaware it succeeded)  cleanup_scheduled  Job ID: ABC123
+       │
+       └──► New TagAndSendCampaignJob dispatched    cleanup_scheduled  Job ID: ABC123
+
+14:46  ► Job starts (Manual retry)                 cleanup_scheduled  Job ID: ABC123
+       │
+       ├──► ⚠️ CRITICAL: Check state                cleanup_scheduled  Job ID: ABC123
+       │    └─ State = 'cleanup_scheduled'
+       │        (means campaign already sent!)
+       │
+       ├──► Cancel old cleanup job                  cleanup_scheduled  Cancelling...
+       │    ├─ cleanup_job_id = ABC123
+       │    ├─ Queue::deleteJob(ABC123) → ✓ Cancelled
+       │    └─ Old cleanup at 16:32 CANCELLED
+       │
+       ├──► Re-send campaign                        sent               None
+       │    └─ CM API: Campaign already sent, returns success
+       │
+       └──► Dispatch NEW cleanup                    cleanup_scheduled  Job ID: DEF456
+            ├─ Delay: 2 hours from NOW (16:46)
+            ├─ cleanup_job_id = DEF456
+            └─ Old cleanup (ABC123) will NOT run
+
+       ──────────────────────────────────────────────────────────────
+
+16:32  ► (Original cleanup time - Job ABC123)      cleanup_scheduled  Job ID: DEF456
+       │
+       └──► ✓ Job ABC123 was already deleted
+            └─ Does not execute
+
+       ──────────────────────────────────────────────────────────────
+
+16:46  ► CleanupCampaignTagJob runs (Job DEF456)   cleanup_scheduled  Job ID: DEF456
+       │
+       ├──► Safety checks pass                      cleanup_scheduled  ✓ All pass
+       │
+       └──► Cleanup executes                        cleaned            None
+
+✓ SUCCESS: Cleanup job cancellation prevented early cleanup after manual retry
+```
+
+---
+
+## Failure Scenario #3: Cleanup Runs Too Early
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│        SCENARIO 3: Cleanup Job Runs Too Early (Rescheduled)      │
+└───────────────────────────────────────────────────────────────────┘
+
+TIME      EVENT                                    STATE              ACTION
+────      ─────                                    ─────              ──────
+
+14:00  ► Campaign sent successfully                 sent               None
+       │
+       └──► Cleanup scheduled for 16:00             cleanup_scheduled  Delay: 2h
+            ├─ campaign_tag_created_at = 14:00
+            └─ cleanup_job_id = JOB123
+
+       ──────────────────────────────────────────────────────────────
+
+14:30  ► Admin manually retries (thinking it failed) cleanup_scheduled  ---
+       │
+       ├──► Job checks state = 'cleanup_scheduled'  cleanup_scheduled  ---
+       │    └─ Already sent, but admin triggered retry
+       │
+       ├──► Cancel old cleanup (JOB123)             cleanup_scheduled  Cancelling
+       │
+       ├──► Re-execute send (idempotent)            sent               ---
+       │    └─ Campaign already exists in CM
+       │
+       └──► Schedule NEW cleanup                    cleanup_scheduled  NEW Job
+            ├─ Delay: 2 hours from NOW (16:30)
+            └─ cleanup_job_id = JOB456
+
+       ──────────────────────────────────────────────────────────────
+
+16:00  ► (Original cleanup time - JOB123)          cleanup_scheduled  ---
+       │
+       └──► ✓ Job was deleted, does not run
+
+       ──────────────────────────────────────────────────────────────
+
+15:00  ► ⚠️ HYPOTHETICAL: Cleanup somehow runs early cleanup_scheduled  Job starts
+       │  (e.g., queue was paused, then resumed)
+       │
+       ├──► CleanupCampaignTagJob starts            cleanup_scheduled  Job ID: JOB456
+       │
+       ├──► Safety Check #1: State ✓                cleanup_scheduled  Pass
+       │
+       ├──► Safety Check #2: Time ❌                cleanup_scheduled  FAIL
+       │    ├─ campaign_tag_created_at = 14:00
+       │    ├─ Current time = 15:00
+       │    ├─ Elapsed: 1 hour
+       │    └─ Required: 2 hours (FAIL!)
+       │
+       ├──► Calculate remaining time                cleanup_scheduled  Calculating
+       │    └─ Remaining = 60 minutes
+       │
+       ├──► Reschedule job                          cleanup_scheduled  Rescheduling
+       │    └─ $this->release(now()->addMinutes(60))
+       │
+       └──► Job rescheduled for 16:00               cleanup_scheduled  Rescheduled
+
+       ──────────────────────────────────────────────────────────────
+
+16:00  ► CleanupCampaignTagJob runs (rescheduled)  cleanup_scheduled  Job starts
+       │
+       ├──► Safety Check #1: State ✓                cleanup_scheduled  Pass
+       │
+       ├──► Safety Check #2: Time ✓                 cleanup_scheduled  Pass
+       │    ├─ Elapsed: 2 hours ✓
+       │
+       ├──► Safety Check #3: Job ID ✓               cleanup_scheduled  Pass
+       │
+       └──► Cleanup executes                        cleaned            Complete
+
+✓ SUCCESS: Safety checks prevented early cleanup and rescheduled correctly
+```
+
+---
+
+## Admin Manual Intervention Workflow
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│           ADMIN MANUAL RECOVERY CONTROLS WORKFLOW                 │
+└───────────────────────────────────────────────────────────────────┘
+
+CAMPAIGN DETAIL PAGE
+────────────────────
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Campaign: "Weekly Newsletter - Nov 12"            State: failed │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │  Campaign State Timeline                                   │ │
+│  ├────────────────────────────────────────────────────────────┤ │
+│  │                                                            │ │
+│  │  14:00  pending     ──────────►                           │ │
+│  │  14:00  tagging     ──────────► (2 min)                   │ │
+│  │  14:02  tagged      ──────────► (1 min)                   │ │
+│  │  14:03  sending     ───X───► ❌ FAILED                    │ │
+│  │                                                            │ │
+│  │  Error: Network timeout connecting to Campaign Monitor   │ │
+│  │  Last attempt: 14:03 (3 attempts)                        │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  Manual Recovery Actions:                                       │
+│  ┌─ [Retry Send] ─────────────────────────────────────────────┐ │
+│  │  Re-dispatch TagAndSendCampaignJob                         │ │
+│  │  Will resume from last successful step                     │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─ [Mark as Sent] ───────────────────────────────────────────┐ │
+│  │  Manually mark as sent (if sent outside system)           │ │
+│  │  ⚠️ Use only if campaign verified in CM dashboard          │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+
+
+ACTION #1: RETRY SEND BUTTON
+─────────────────────────────
+
+User clicks [Retry Send]
+       │
+       ├──► Show confirmation modal
+       │    │
+       │    │  ┌────────────────────────────────────────────┐
+       │    │  │  Retry Campaign Send?                      │
+       │    │  ├────────────────────────────────────────────┤
+       │    │  │                                            │
+       │    │  │  This will re-dispatch the send job.      │
+       │    │  │  The job will resume from the last        │
+       │    │  │  successful step (sending).               │
+       │    │  │                                            │
+       │    │  │  Recipients: 2,345 users                  │
+       │    │  │                                            │
+       │    │  │  [Cancel]              [Confirm & Retry]  │
+       │    │  └────────────────────────────────────────────┘
+       │    │
+       │    └──► User confirms
+       │
+       ├──► Dispatch TagAndSendCampaignJob
+       │    └─ Queue: cm-campaigns
+       │
+       └──► Show success message
+            └─ "Campaign send job dispatched. Refresh to see status."
+
+
+CAMPAIGN WITH CLEANUP SCHEDULED
+────────────────────────────────
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Campaign: "Weekly Newsletter"        State: cleanup_scheduled  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ✓ Sent: Nov 12, 14:30 (1 hour 15 min ago)                    │
+│  🕐 Cleanup scheduled: Nov 12, 16:30 (in 45 minutes)           │
+│                                                                 │
+│  ⚠️ WARNING: Cleanup scheduled less than 2 hours after send!   │
+│                                                                 │
+│  Manual Controls:                                               │
+│  ┌─ [Cancel Cleanup] ─────────────────────────────────────────┐ │
+│  │  Stop cleanup job from running                             │ │
+│  │  Tags will remain, segment will not be deleted            │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─ [Reschedule Cleanup] ──────────────────────────────────────┐ │
+│  │  Reschedule cleanup for 2 hours from now                   │ │
+│  │  Cancels current job, dispatches new one                   │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─ [Run Cleanup Now] ─────────────────────────────────────────┐ │
+│  │  Force immediate cleanup (emergency use)                   │ │
+│  │  ⚠️ Use only if metrics collection complete                 │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+
+
+ACTION #2: RESCHEDULE CLEANUP
+──────────────────────────────
+
+User clicks [Reschedule Cleanup]
+       │
+       ├──► Show confirmation
+       │    │
+       │    │  Reschedule cleanup for 2 hours from now?
+       │    │  Current: 16:30 → New: 18:00
+       │    │
+       │    └──► User confirms
+       │
+       ├──► Cancel old cleanup job
+       │    └─ Queue::deleteJob(cleanup_job_id)
+       │
+       ├──► Dispatch new cleanup job
+       │    └─ Delay: now()->addHours(2)
+       │
+       ├──► Update campaign
+       │    └─ cleanup_job_id = new job ID
+       │
+       └──► Show success
+            └─ "Cleanup rescheduled for 18:00"
+
+
+CAMPAIGN STUCK IN NON-TERMINAL STATE
+─────────────────────────────────────
+
+┌─────────────────────────────────────────────────────────────────┐
+│  Campaign: "Weekly Newsletter"              State: sending      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ⚠️ STUCK: Campaign in 'sending' state for 6 hours             │
+│  Last updated: Nov 12, 08:30                                   │
+│  Current time: Nov 12, 14:30                                   │
+│                                                                 │
+│  Possible causes:                                               │
+│  • Job died without failing properly                           │
+│  • Queue worker crashed                                        │
+│  • Database update failed                                      │
+│                                                                 │
+│  Recovery options:                                              │
+│  ┌─ [Retry Send] ─────────────────────────────────────────────┐ │
+│  │  Dispatch new send job (will check state and resume)      │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─ [Check CM Dashboard] ──────────────────────────────────────┐ │
+│  │  Verify if campaign exists in Campaign Monitor             │ │
+│  │  [Open CM Dashboard] → external link                       │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─ [Mark as Sent] ───────────────────────────────────────────┐ │
+│  │  If verified in CM, manually update state to 'sent'       │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                 │
+│  ┌─ [Mark as Failed] ─────────────────────────────────────────┐ │
+│  │  If send definitely failed, mark as 'failed'              │ │
+│  └────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## State Badge UI Patterns
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                  CAMPAIGN STATE BADGE DESIGN                      │
+└───────────────────────────────────────────────────────────────────┘
+
+STATE: pending
+─────────────
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-gray-100 text-gray-800
+             dark:bg-gray-800 dark:text-gray-300">
+    <svg class="w-3 h-3 mr-1" fill="currentColor"><!-- clock icon --></svg>
+    Pending
+</span>
+
+
+STATE: tagging
+──────────────
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-blue-100 text-blue-800
+             dark:bg-blue-900/30 dark:text-blue-300">
+    <svg class="w-3 h-3 mr-1 animate-spin" fill="currentColor"><!-- spinner --></svg>
+    Tagging
+</span>
+
+
+STATE: tagged
+─────────────
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-blue-100 text-blue-800
+             dark:bg-blue-900/30 dark:text-blue-300">
+    <svg class="w-3 h-3 mr-1" fill="currentColor"><!-- tag icon --></svg>
+    Tagged
+</span>
+
+
+STATE: sending
+──────────────
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-yellow-100 text-yellow-800
+             dark:bg-yellow-900/30 dark:text-yellow-300">
+    <svg class="w-3 h-3 mr-1 animate-pulse" fill="currentColor"><!-- paper plane --></svg>
+    Sending
+</span>
+
+
+STATE: sent
+───────────
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-green-100 text-green-800
+             dark:bg-green-900/30 dark:text-green-300">
+    <svg class="w-3 h-3 mr-1" fill="currentColor"><!-- check circle --></svg>
+    Sent
+</span>
+
+
+STATE: cleanup_scheduled
+────────────────────────
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-purple-100 text-purple-800
+             dark:bg-purple-900/30 dark:text-purple-300">
+    <svg class="w-3 h-3 mr-1" fill="currentColor"><!-- clock icon --></svg>
+    Cleanup Scheduled
+</span>
+
+WITH WARNING (cleanup < 2h after send):
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-orange-100 text-orange-800
+             dark:bg-orange-900/30 dark:text-orange-300">
+    <svg class="w-3 h-3 mr-1 animate-pulse" fill="currentColor"><!-- warning --></svg>
+    Cleanup Scheduled ⚠️
+</span>
+
+
+STATE: cleaned
+──────────────
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-gray-100 text-gray-600
+             dark:bg-gray-800 dark:text-gray-400">
+    <svg class="w-3 h-3 mr-1" fill="currentColor"><!-- check --></svg>
+    Cleaned
+</span>
+
+
+STATE: failed
+─────────────
+<span class="inline-flex items-center px-2 py-1 text-xs font-medium
+             rounded-md bg-red-100 text-red-800
+             dark:bg-red-900/30 dark:text-red-300">
+    <svg class="w-3 h-3 mr-1" fill="currentColor"><!-- X circle --></svg>
+    Failed
+</span>
+```
+
+---
+
+**Document Status:** Historical Reference - Updated with Campaign Metrics, Backfill, Re-Sync & Job Error Handling
 **Last Updated:** 2025-11-12
-**Version:** 3.0 (Campaign Metrics & Backfill Enhancement)
+**Version:** 4.0 (Complete with Job Failure Recovery Workflows)

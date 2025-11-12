@@ -2454,6 +2454,778 @@ $users = $users->unique('email');
 
 ---
 
-**Document Version:** 1.0
+## Job Failure Handling & Error Recovery Strategy
+
+### Overview
+
+**Critical Issue Identified:**
+When `TagAndSendCampaignJob` fails partway through execution, the scheduled `CleanupCampaignTagJob` can create serious problems:
+- Tags may be cleared before campaign sends successfully on retry
+- Orphaned CM segments remain if cleanup job fails
+- Race conditions between retry and cleanup jobs
+- Metrics tracking breaks if cleanup runs too early
+
+**Solution:** Implement atomic state machine with job cancellation and safety checks.
+
+---
+
+### Problem Scenarios
+
+#### Scenario 1: Tag Job Fails, Cleanup Still Scheduled ⚠️
+
+```
+14:00 - TagAndSendCampaignJob starts
+14:01 - Tags 2,345 users successfully
+14:02 - Creates CM segment successfully
+14:03 - FAILS at "send campaign" step (network error)
+14:03 - CleanupCampaignTagJob scheduled for 16:03
+15:50 - Admin retries the failed job
+15:52 - Job re-runs, re-tags users, sends successfully
+16:03 - Cleanup job runs (11 minutes after successful send!)
+16:03 - Tags cleared, segment deleted
+Result: Campaign metrics tracking BREAKS ❌
+```
+
+#### Scenario 2: Send Succeeds, Cleanup Job Fails
+
+```
+14:00 - TagAndSendCampaignJob completes successfully
+16:00 - CleanupCampaignTagJob starts
+16:01 - FAILS while clearing tags (CM API timeout)
+Result: Tags never cleared, CM bloat accumulates ❌
+```
+
+#### Scenario 3: Multiple Retries with Same Tag
+
+```
+14:00 - First attempt: Tags users, fails at send
+14:00 - Cleanup scheduled for 16:00
+14:15 - Retry 1: Tags users again, fails at send
+14:15 - Cleanup scheduled for 16:15 (duplicate!)
+14:30 - Retry 2: Tags users again, SUCCEEDS
+14:30 - Cleanup scheduled for 16:30 (triplicate!)
+16:00 - First cleanup runs (1.5 hours after successful send)
+Result: Unpredictable cleanup timing, possible data loss ❌
+```
+
+---
+
+### Solution: Atomic State Machine with Job Tracking
+
+#### Database Schema Addition
+
+```php
+// Migration: add_campaign_state_tracking_to_campaigns_table.php
+
+Schema::table('campaigns', function (Blueprint $table) {
+    // State tracking
+    $table->enum('campaign_tag_status', [
+        'pending',           // Initial state
+        'tagging',           // Currently tagging users
+        'tagged',            // Users tagged successfully
+        'sending',           // Sending campaign via CM
+        'sent',              // Campaign sent successfully
+        'cleanup_scheduled', // Cleanup job dispatched
+        'cleaned',           // Cleanup completed
+        'failed'             // Job failed at any step
+    ])->default('pending')->after('status');
+
+    // Timestamps for validation
+    $table->timestamp('campaign_tag_created_at')
+          ->nullable()
+          ->after('campaign_tag_status')
+          ->comment('When tagging completed (for 2-hour cleanup validation)');
+
+    // Job tracking for cancellation
+    $table->string('cleanup_job_id', 64)
+          ->nullable()
+          ->after('campaign_tag_created_at')
+          ->comment('ID of dispatched cleanup job (for cancellation on retry)');
+
+    // Indexes
+    $table->index('campaign_tag_status');
+    $table->index(['campaign_tag_status', 'campaign_tag_created_at']);
+});
+```
+
+#### State Machine Diagram
+
+```
+┌──────────┐
+│ pending  │
+└─────┬────┘
+      │ Job starts
+      ▼
+┌──────────┐
+│ tagging  │──────► failed (if tagging fails)
+└─────┬────┘
+      │ Tagging complete
+      ▼
+┌──────────┐
+│  tagged  │──────► failed (if segment creation fails)
+└─────┬────┘
+      │ Segment created
+      ▼
+┌──────────┐
+│ sending  │──────► failed (if send fails)
+└─────┬────┘
+      │ Campaign sent
+      ▼
+┌──────────┐
+│   sent   │
+└─────┬────┘
+      │ Cleanup dispatched
+      ▼
+┌─────────────────┐
+│cleanup_scheduled│
+└─────┬───────────┘
+      │ After 2+ hours
+      ▼
+┌──────────┐
+│ cleaned  │
+└──────────┘
+
+On Retry:
+  ├─ Check state
+  ├─ If already 'sent', skip (idempotent)
+  ├─ If 'failed', resume from last successful step
+  └─ Cancel old cleanup job, dispatch new one
+```
+
+---
+
+### Implementation
+
+#### Enhanced TagAndSendCampaignJob
+
+```php
+<?php
+
+namespace App\Jobs;
+
+use App\Models\Campaign;
+use App\Services\CampaignMonitorService;
+use App\Services\DynamicTagService;
+use App\Notifications\CampaignSendFailedNotification;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Notification;
+use Throwable;
+
+class TagAndSendCampaignJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public $tries = 3;
+    public $timeout = 300; // 5 minutes
+    public $backoff = [60, 300, 900]; // 1min, 5min, 15min
+
+    public function __construct(
+        public int $campaignId,
+        public array $userIds,
+        public string $tag
+    ) {}
+
+    public function handle(
+        CampaignMonitorService $cm,
+        DynamicTagService $tagService
+    ): void {
+        // Use database transaction with pessimistic locking
+        DB::transaction(function () use ($cm, $tagService) {
+            // Lock campaign for update (prevents race conditions)
+            $campaign = Campaign::lockForUpdate()->findOrFail($this->campaignId);
+
+            // ===== IDEMPOTENCY CHECK =====
+            if ($campaign->campaign_tag_status === 'sent') {
+                Log::info("Campaign {$campaign->id} already sent, skipping execution", [
+                    'campaign_id' => $campaign->id,
+                    'job_id' => $this->job->getJobId()
+                ]);
+                return;
+            }
+
+            // ===== STEP 1: TAG USERS =====
+            if (!in_array($campaign->campaign_tag_status, ['tagged', 'sending', 'sent'])) {
+                Log::info("Campaign {$campaign->id}: Starting tagging", [
+                    'user_count' => count($this->userIds)
+                ]);
+
+                $campaign->update(['campaign_tag_status' => 'tagging']);
+
+                // Tag users in CM (batched)
+                $tagService->tagUsers($this->userIds, $this->tag);
+
+                $campaign->update([
+                    'campaign_tag_status' => 'tagged',
+                    'campaign_tag_created_at' => now()
+                ]);
+
+                Log::info("Campaign {$campaign->id}: Tagging completed");
+            }
+
+            // ===== STEP 2: CREATE CM SEGMENT =====
+            if (!in_array($campaign->campaign_tag_status, ['sending', 'sent'])) {
+                Log::info("Campaign {$campaign->id}: Creating CM segment");
+
+                $segmentId = $cm->createSegment([
+                    'Title' => "Campaign {$campaign->id} - {$campaign->name}",
+                    'Rules' => [
+                        [
+                            'Field' => 'temp_campaign_tag',
+                            'Operator' => 'EQUALS',
+                            'Value' => $this->tag
+                        ]
+                    ]
+                ]);
+
+                $campaign->update([
+                    'cm_segment_id' => $segmentId,
+                    'campaign_tag' => $this->tag
+                ]);
+
+                Log::info("Campaign {$campaign->id}: CM segment created", [
+                    'segment_id' => $segmentId
+                ]);
+            }
+
+            // ===== STEP 3: SEND CAMPAIGN =====
+            if ($campaign->campaign_tag_status !== 'sent') {
+                Log::info("Campaign {$campaign->id}: Sending campaign");
+
+                $campaign->update(['campaign_tag_status' => 'sending']);
+
+                $cmCampaignId = $cm->sendCampaign([
+                    'Name' => $campaign->name,
+                    'Subject' => $campaign->subject,
+                    'TemplateID' => $campaign->cm_template_id,
+                    'SegmentIDs' => [$campaign->cm_segment_id]
+                ]);
+
+                $campaign->update([
+                    'cm_campaign_id' => $cmCampaignId,
+                    'status' => 'sent',
+                    'sent_at' => now(),
+                    'campaign_tag_status' => 'sent',
+                    'recipient_count' => count($this->userIds)
+                ]);
+
+                Log::info("Campaign {$campaign->id}: Campaign sent successfully", [
+                    'cm_campaign_id' => $cmCampaignId,
+                    'recipient_count' => count($this->userIds)
+                ]);
+            }
+
+            // ===== STEP 4: CANCEL OLD CLEANUP & SCHEDULE NEW =====
+            // CRITICAL: Cancel previous cleanup job if it exists
+            if ($campaign->cleanup_job_id) {
+                try {
+                    Queue::deleteJob($campaign->cleanup_job_id);
+                    Log::info("Campaign {$campaign->id}: Cancelled old cleanup job", [
+                        'old_job_id' => $campaign->cleanup_job_id
+                    ]);
+                } catch (Throwable $e) {
+                    Log::warning("Campaign {$campaign->id}: Could not cancel old cleanup job", [
+                        'old_job_id' => $campaign->cleanup_job_id,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            // Dispatch NEW cleanup job (2 hours from NOW)
+            $cleanupJob = CleanupCampaignTagJob::dispatch($campaign->id)
+                ->delay(now()->addHours(2))
+                ->onQueue('cm-cleanup');
+
+            $campaign->update([
+                'cleanup_job_id' => $cleanupJob->id,
+                'campaign_tag_status' => 'cleanup_scheduled'
+            ]);
+
+            Log::info("Campaign {$campaign->id}: Cleanup job scheduled", [
+                'cleanup_job_id' => $cleanupJob->id,
+                'cleanup_at' => now()->addHours(2)->toDateTimeString()
+            ]);
+        });
+    }
+
+    /**
+     * Handle job failure - cancel cleanup and notify admins
+     */
+    public function failed(Throwable $exception): void
+    {
+        try {
+            DB::transaction(function () use ($exception) {
+                $campaign = Campaign::lockForUpdate()->find($this->campaignId);
+
+                if (!$campaign) {
+                    Log::error("Campaign {$this->campaignId} not found in failed() handler");
+                    return;
+                }
+
+                // Cancel cleanup job if it was scheduled
+                if ($campaign->cleanup_job_id) {
+                    try {
+                        Queue::deleteJob($campaign->cleanup_job_id);
+                        Log::info("Campaign {$campaign->id}: Cleanup job cancelled due to failure", [
+                            'cleanup_job_id' => $campaign->cleanup_job_id
+                        ]);
+                    } catch (Throwable $e) {
+                        Log::warning("Campaign {$campaign->id}: Could not cancel cleanup job", [
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+
+                // Mark campaign as failed
+                $campaign->update([
+                    'campaign_tag_status' => 'failed',
+                    'status' => 'failed',
+                    'cleanup_job_id' => null
+                ]);
+
+                Log::error("Campaign {$campaign->id}: Job failed permanently", [
+                    'exception' => $exception->getMessage(),
+                    'trace' => $exception->getTraceAsString(),
+                    'state_at_failure' => $campaign->campaign_tag_status,
+                    'attempt' => $this->attempts()
+                ]);
+
+                // Notify admins
+                $admins = \App\Models\User::where('role', 'admin')->get();
+                Notification::send($admins, new CampaignSendFailedNotification(
+                    $campaign,
+                    $exception,
+                    $this->attempts()
+                ));
+            });
+        } catch (Throwable $e) {
+            Log::critical("Campaign {$this->campaignId}: Failed to handle job failure", [
+                'error' => $e->getMessage(),
+                'original_exception' => $exception->getMessage()
+            ]);
+        }
+    }
+}
+```
+
+#### Enhanced CleanupCampaignTagJob with Safety Checks
+
+```php
+<?php
+
+namespace App\Jobs;
+
+use App\Models\Campaign;
+use App\Services\CampaignMonitorService;
+use App\Services\DynamicTagService;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
+
+class CleanupCampaignTagJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public $tries = 3;
+    public $timeout = 180; // 3 minutes
+    public $backoff = [60, 300];
+
+    public function __construct(public int $campaignId) {}
+
+    public function handle(
+        CampaignMonitorService $cm,
+        DynamicTagService $tagService
+    ): void {
+        $campaign = Campaign::findOrFail($this->campaignId);
+
+        Log::info("Campaign {$campaign->id}: Cleanup job started", [
+            'job_id' => $this->job->getJobId(),
+            'state' => $campaign->campaign_tag_status,
+            'sent_at' => $campaign->sent_at
+        ]);
+
+        // ===== SAFETY CHECK #1: STATE VALIDATION =====
+        if ($campaign->campaign_tag_status !== 'cleanup_scheduled') {
+            Log::warning("Campaign {$campaign->id}: Cleanup aborted - invalid state", [
+                'expected' => 'cleanup_scheduled',
+                'actual' => $campaign->campaign_tag_status,
+                'action' => 'abort'
+            ]);
+            return; // Don't fail job, just abort
+        }
+
+        // ===== SAFETY CHECK #2: TIME VALIDATION =====
+        $campaignTagCreatedAt = Carbon::parse($campaign->campaign_tag_created_at);
+        $hoursSinceSend = now()->diffInHours($campaignTagCreatedAt);
+        $minutesSinceSend = now()->diffInMinutes($campaignTagCreatedAt);
+
+        if ($hoursSinceSend < 2) {
+            Log::warning("Campaign {$campaign->id}: Cleanup too early - rescheduling", [
+                'hours_since_send' => $hoursSinceSend,
+                'minutes_since_send' => $minutesSinceSend,
+                'minimum_required' => 2,
+                'action' => 'reschedule'
+            ]);
+
+            // Calculate remaining time needed
+            $remainingMinutes = (2 * 60) - $minutesSinceSend;
+            $rescheduledFor = now()->addMinutes($remainingMinutes);
+
+            // Reschedule for remaining time
+            $this->release($rescheduledFor);
+
+            Log::info("Campaign {$campaign->id}: Cleanup rescheduled", [
+                'reschedule_in_minutes' => $remainingMinutes,
+                'reschedule_at' => $rescheduledFor->toDateTimeString()
+            ]);
+
+            return;
+        }
+
+        // ===== SAFETY CHECK #3: JOB ID VALIDATION =====
+        if ($campaign->cleanup_job_id && $this->job->getJobId() !== $campaign->cleanup_job_id) {
+            Log::warning("Campaign {$campaign->id}: Cleanup aborted - stale job", [
+                'expected_job_id' => $campaign->cleanup_job_id,
+                'actual_job_id' => $this->job->getJobId(),
+                'action' => 'abort'
+            ]);
+            return; // Don't fail job, this is an old/stale cleanup attempt
+        }
+
+        // ===== ALL SAFETY CHECKS PASSED - PROCEED WITH CLEANUP =====
+        Log::info("Campaign {$campaign->id}: All safety checks passed, proceeding with cleanup", [
+            'hours_since_send' => $hoursSinceSend
+        ]);
+
+        // Step 1: Clear tags from users
+        $tagService->clearTag($campaign->campaign_tag);
+        Log::info("Campaign {$campaign->id}: Tags cleared");
+
+        // Step 2: Delete CM segment
+        if ($campaign->cm_segment_id) {
+            $cm->deleteSegment($campaign->cm_segment_id);
+            Log::info("Campaign {$campaign->id}: CM segment deleted", [
+                'segment_id' => $campaign->cm_segment_id
+            ]);
+        }
+
+        // Step 3: Update campaign state
+        $campaign->update([
+            'campaign_tag_status' => 'cleaned',
+            'cleanup_completed_at' => now(),
+            'cleanup_job_id' => null
+        ]);
+
+        Log::info("Campaign {$campaign->id}: Cleanup completed successfully");
+    }
+
+    /**
+     * Handle cleanup job failure
+     */
+    public function failed(\Throwable $exception): void
+    {
+        $campaign = Campaign::find($this->campaignId);
+
+        if ($campaign) {
+            Log::error("Campaign {$campaign->id}: Cleanup job failed", [
+                'exception' => $exception->getMessage(),
+                'trace' => $exception->getTraceAsString(),
+                'attempts' => $this->attempts()
+            ]);
+
+            // Don't change campaign state - leave as 'cleanup_scheduled'
+            // Admin can manually trigger cleanup or it will retry
+        }
+    }
+}
+```
+
+#### Campaign Failure Notification
+
+```php
+<?php
+
+namespace App\Notifications;
+
+use App\Models\Campaign;
+use Illuminate\Bus\Queueable;
+use Illuminate\Notifications\Notification;
+use Illuminate\Notifications\Messages\MailMessage;
+use Throwable;
+
+class CampaignSendFailedNotification extends Notification
+{
+    use Queueable;
+
+    public function __construct(
+        public Campaign $campaign,
+        public Throwable $exception,
+        public int $attemptNumber
+    ) {}
+
+    public function via($notifiable): array
+    {
+        return ['mail', 'database'];
+    }
+
+    public function toMail($notifiable): MailMessage
+    {
+        return (new MailMessage)
+            ->error()
+            ->subject("Campaign Send Failed: {$this->campaign->name}")
+            ->line("Campaign #{$this->campaign->id} failed to send after {$this->attemptNumber} attempts.")
+            ->line("**Campaign:** {$this->campaign->name}")
+            ->line("**State at failure:** {$this->campaign->campaign_tag_status}")
+            ->line("**Error:** {$this->exception->getMessage()}")
+            ->action('View Campaign', url("/admin/cdp/campaigns/{$this->campaign->id}"))
+            ->line('Please check the campaign details and retry if necessary.');
+    }
+
+    public function toArray($notifiable): array
+    {
+        return [
+            'campaign_id' => $this->campaign->id,
+            'campaign_name' => $this->campaign->name,
+            'state_at_failure' => $this->campaign->campaign_tag_status,
+            'error_message' => $this->exception->getMessage(),
+            'attempt_number' => $this->attemptNumber
+        ];
+    }
+}
+```
+
+---
+
+### Manual Recovery Actions (Admin UI)
+
+Admin dashboard should provide manual controls for failed/stuck campaigns:
+
+#### 1. Cancel Cleanup Button
+
+```php
+// In CampaignDetail component
+
+public function cancelCleanup()
+{
+    if ($this->campaign->cleanup_job_id) {
+        Queue::deleteJob($this->campaign->cleanup_job_id);
+
+        $this->campaign->update([
+            'cleanup_job_id' => null,
+            'campaign_tag_status' => 'sent' // Revert to sent state
+        ]);
+
+        session()->flash('success', 'Cleanup job cancelled successfully.');
+    }
+}
+```
+
+#### 2. Reschedule Cleanup Button
+
+```php
+public function rescheduleCleanup()
+{
+    // Cancel old cleanup if exists
+    if ($this->campaign->cleanup_job_id) {
+        Queue::deleteJob($this->campaign->cleanup_job_id);
+    }
+
+    // Dispatch new cleanup for 2 hours from NOW
+    $cleanupJob = CleanupCampaignTagJob::dispatch($this->campaign->id)
+        ->delay(now()->addHours(2))
+        ->onQueue('cm-cleanup');
+
+    $this->campaign->update([
+        'cleanup_job_id' => $cleanupJob->id,
+        'campaign_tag_status' => 'cleanup_scheduled'
+    ]);
+
+    session()->flash('success', 'Cleanup rescheduled for 2 hours from now.');
+}
+```
+
+#### 3. Retry Send Button
+
+```php
+public function retrySend()
+{
+    // Dispatch new send job
+    TagAndSendCampaignJob::dispatch(
+        $this->campaign->id,
+        $this->campaign->segment->getUsers()->pluck('id')->toArray(),
+        $this->campaign->campaign_tag ?? DynamicTagService::generateTag($this->campaign)
+    )->onQueue('cm-campaigns');
+
+    session()->flash('success', 'Campaign send job dispatched. Refresh page to see status.');
+}
+```
+
+#### 4. Manual Cleanup Button
+
+```php
+public function manualCleanup()
+{
+    $this->confirm('Mark this campaign as cleaned? This will clear tags and delete the CM segment.', [
+        'onConfirmed' => 'executeManualCleanup'
+    ]);
+}
+
+public function executeManualCleanup()
+{
+    // Dispatch cleanup job immediately
+    CleanupCampaignTagJob::dispatch($this->campaign->id)
+        ->onQueue('cm-cleanup');
+
+    session()->flash('success', 'Cleanup job dispatched immediately.');
+}
+```
+
+---
+
+### Monitoring & Alerts
+
+#### Campaign State Monitoring Query
+
+```php
+// Find campaigns stuck in non-terminal states
+Campaign::whereIn('campaign_tag_status', [
+        'tagging',
+        'tagged',
+        'sending',
+        'cleanup_scheduled'
+    ])
+    ->where('updated_at', '<', now()->subHours(6))
+    ->get();
+```
+
+#### Cleanup Jobs Running Too Early
+
+```php
+// Find campaigns where cleanup is scheduled too early
+Campaign::where('campaign_tag_status', 'cleanup_scheduled')
+    ->whereNotNull('campaign_tag_created_at')
+    ->whereNotNull('cleanup_job_id')
+    ->where('campaign_tag_created_at', '>', now()->subHours(2))
+    ->get();
+```
+
+#### Failed Campaigns Requiring Attention
+
+```php
+// Find failed campaigns
+Campaign::where('campaign_tag_status', 'failed')
+    ->where('created_at', '>', now()->subDays(7))
+    ->get();
+```
+
+---
+
+### Testing Strategy
+
+#### Unit Tests
+
+```php
+// tests/Unit/Jobs/TagAndSendCampaignJobTest.php
+
+/** @test */
+public function it_is_idempotent_when_campaign_already_sent()
+{
+    $campaign = Campaign::factory()->create([
+        'campaign_tag_status' => 'sent'
+    ]);
+
+    $job = new TagAndSendCampaignJob($campaign->id, [1, 2, 3], 'test_tag');
+    $job->handle(
+        Mockery::mock(CampaignMonitorService::class),
+        Mockery::mock(DynamicTagService::class)
+    );
+
+    // Should not call any CM services
+    // Campaign state should remain unchanged
+}
+
+/** @test */
+public function it_cancels_old_cleanup_job_on_retry()
+{
+    $campaign = Campaign::factory()->create([
+        'campaign_tag_status' => 'tagged',
+        'cleanup_job_id' => 'old-job-123'
+    ]);
+
+    Queue::fake();
+
+    $job = new TagAndSendCampaignJob($campaign->id, [1, 2, 3], 'test_tag');
+    $job->handle(
+        $this->mockCampaignMonitorService(),
+        $this->mockDynamicTagService()
+    );
+
+    // Assert old job was deleted
+    Queue::assertDeleted('old-job-123');
+
+    // Assert new cleanup job was dispatched
+    Queue::assertPushed(CleanupCampaignTagJob::class);
+}
+```
+
+#### Feature Tests
+
+```php
+// tests/Feature/CampaignFailureRecoveryTest.php
+
+/** @test */
+public function it_recovers_from_send_failure_on_retry()
+{
+    // Simulate failure at send step
+    $this->mockCMSendToFail();
+
+    $job = new TagAndSendCampaignJob($campaign->id, [1, 2], 'tag');
+
+    try {
+        $job->handle($cm, $tagService);
+    } catch (\Exception $e) {
+        // Expected failure
+    }
+
+    // Campaign should be in 'sending' state
+    $this->assertEquals('sending', $campaign->fresh()->campaign_tag_status);
+
+    // Retry should resume from 'sending' state
+    $this->mockCMSendToSucceed();
+
+    $retryJob = new TagAndSendCampaignJob($campaign->id, [1, 2], 'tag');
+    $retryJob->handle($cm, $tagService);
+
+    // Campaign should now be 'sent'
+    $this->assertEquals('cleanup_scheduled', $campaign->fresh()->campaign_tag_status);
+}
+```
+
+---
+
+### Best Practices Summary
+
+1. **Always use pessimistic locking** (`lockForUpdate()`) when modifying campaign state
+2. **Check state before each step** to enable safe retries
+3. **Cancel old cleanup jobs** before dispatching new ones
+4. **Validate time elapsed** before running cleanup (minimum 2 hours)
+5. **Log all state transitions** with campaign ID and context
+6. **Provide manual controls** for admins to recover from edge cases
+7. **Monitor stuck campaigns** with automated alerts
+8. **Test failure scenarios** thoroughly in staging environment
+
+---
+
+**Document Version:** 2.0
 **Last Updated:** 2025-11-12
-**Status:** Production-Ready
+**Status:** Production-Ready (with Job Error Handling)
