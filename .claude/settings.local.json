@@ -23,7 +23,9 @@
       "Bash(find:*)",
       "Bash(vendor/bin/pest:*)",
       "Bash(awk:*)",
-      "Bash(xargs kill:*)"
+      "Bash(xargs kill:*)",
+      "WebFetch(domain:www.campaignmonitor.com)",
+      "mcp__laravel-boost__list-routes"
     ],
     "deny": [],
     "ask": []
