@@ -1142,6 +1142,543 @@ $users = User::whereHas('events', fn($q) =>
     ->get();
 ```
 
+---
+
+## Product Subscription Filtering Patterns
+
+### Overview
+
+Product opt-in/opt-out filtering is a **CRITICAL** segmentation capability that requires the **DYNAMIC TAG** approach due to the JOIN complexity with `user_product_subscription` table. This section documents all product filtering patterns supported by the SegmentQueryBuilder.
+
+### Why Dynamic Tags for Product Filtering?
+
+```
+Product Subscription Query Characteristics:
+├── Requires JOIN with user_product_subscription table
+├── Multiple conditions (product_id, is_active, subscribed_at, unsubscribed_at)
+├── Support for multi-product filtering (OR/AND logic)
+├── Exclusion queries (NOT subscribed)
+├── Historical data (opted-out users for win-back campaigns)
+└── Campaign Monitor CANNOT replicate this logic → MUST use Dynamic Tags
+```
+
+### Supported Filter Types
+
+The SegmentQueryBuilder supports **4 product filter types**:
+
+| Filter Type | Description | Use Case | Dynamic Tag Required |
+|-------------|-------------|----------|---------------------|
+| `subscribed_to_product` | Active subscribers to specific product(s) | Standard product targeting | ✅ Yes |
+| `not_subscribed_to_product` | Users NOT subscribed to specific product(s) | Exclusion campaigns | ✅ Yes |
+| `opted_out_of_product` | Users who unsubscribed from product(s) | Win-back campaigns | ✅ Yes |
+| `active_products_count` | Users with X active subscriptions | Engagement threshold | ✅ Yes |
+
+### Implementation: SegmentQueryBuilder Service
+
+```php
+// app/Services/SegmentQueryBuilder.php
+
+namespace App\Services;
+
+use Illuminate\Database\Eloquent\Builder;
+use App\Models\User;
+
+class SegmentQueryBuilder
+{
+    public function build(array $rules): Builder
+    {
+        $query = User::query();
+
+        foreach ($rules as $rule) {
+            $query = match($rule['field']) {
+                'tier' => $this->addTierFilter($query, $rule),
+                'subscribed_to_product' => $this->filterBySubscribedProduct($query, $rule['operator'], $rule['value']),
+                'not_subscribed_to_product' => $this->filterByNotSubscribedProduct($query, $rule['operator'], $rule['value']),
+                'opted_out_of_product' => $this->filterByOptedOut($query, $rule['operator'], $rule['value']),
+                'active_products_count' => $this->filterByProductCount($query, $rule['operator'], $rule['value']),
+                'activity_score_7d' => $this->addActivityFilter($query, $rule),
+                'event_attendance' => $this->addEventFilter($query, $rule),
+                default => $query,
+            };
+        }
+
+        return $query;
+    }
+
+    /**
+     * Filter users subscribed to specific product(s)
+     */
+    protected function filterBySubscribedProduct(Builder $query, string $operator, $value): Builder
+    {
+        if ($operator === 'equals') {
+            return $query->whereHas('productSubscriptions', fn($q) =>
+                $q->where('product_id', $value)
+                  ->where('is_active', true)
+            );
+        }
+
+        if ($operator === 'in') {
+            return $query->whereHas('productSubscriptions', fn($q) =>
+                $q->whereIn('product_id', $value)
+                  ->where('is_active', true)
+            );
+        }
+
+        return $query;
+    }
+
+    /**
+     * Filter users NOT subscribed to specific product(s)
+     */
+    protected function filterByNotSubscribedProduct(Builder $query, string $operator, $value): Builder
+    {
+        if ($operator === 'equals') {
+            return $query->whereDoesntHave('productSubscriptions', fn($q) =>
+                $q->where('product_id', $value)
+                  ->where('is_active', true)
+            );
+        }
+
+        if ($operator === 'in') {
+            // Users not subscribed to ANY of the specified products
+            return $query->whereDoesntHave('productSubscriptions', fn($q) =>
+                $q->whereIn('product_id', $value)
+                  ->where('is_active', true)
+            );
+        }
+
+        return $query;
+    }
+
+    /**
+     * Filter users who opted out of specific product(s)
+     */
+    protected function filterByOptedOut(Builder $query, string $operator, $value): Builder
+    {
+        if ($operator === 'equals') {
+            return $query->whereHas('productSubscriptions', fn($q) =>
+                $q->where('product_id', $value)
+                  ->where('is_active', false)
+                  ->whereNotNull('unsubscribed_at')
+            );
+        }
+
+        if ($operator === 'in') {
+            return $query->whereHas('productSubscriptions', fn($q) =>
+                $q->whereIn('product_id', $value)
+                  ->where('is_active', false)
+                  ->whereNotNull('unsubscribed_at')
+            );
+        }
+
+        return $query;
+    }
+
+    /**
+     * Filter users by active product subscription count
+     */
+    protected function filterByProductCount(Builder $query, string $operator, int $value): Builder
+    {
+        return $query->has('productSubscriptions', $operator, $value);
+    }
+}
+```
+
+### 8 Common Product Filtering Patterns
+
+#### Pattern 1: Single Product Targeting
+
+**Use Case:** Send campaign to all "Premium Newsletter" subscribers
+
+```php
+$rules = [
+    [
+        'field' => 'subscribed_to_product',
+        'operator' => 'equals',
+        'value' => 5 // Product ID for "Premium Newsletter"
+    ]
+];
+
+// Generated Query:
+User::whereHas('productSubscriptions', fn($q) =>
+    $q->where('product_id', 5)
+      ->where('is_active', true)
+)->get();
+```
+
+**Segment Type:** Dynamic Tag
+**Estimated Query Time:** 0.2-0.5s for 60K users (with composite index)
+
+---
+
+#### Pattern 2: Multi-Product OR Logic
+
+**Use Case:** Send campaign to users subscribed to "Webinar Access" OR "Premium Newsletter" OR "VIP Events"
+
+```php
+$rules = [
+    [
+        'field' => 'subscribed_to_product',
+        'operator' => 'in',
+        'value' => [5, 8, 12] // Multiple product IDs
+    ]
+];
+
+// Generated Query:
+User::whereHas('productSubscriptions', fn($q) =>
+    $q->whereIn('product_id', [5, 8, 12])
+      ->where('is_active', true)
+)->get();
+```
+
+**UI:** Multi-select checkbox list when operator is "In"
+**Segment Type:** Dynamic Tag
+**Matching Logic:** User matches if subscribed to ANY of the products
+
+---
+
+#### Pattern 3: Multi-Product AND Logic
+
+**Use Case:** Send campaign to users subscribed to BOTH "Webinar Access" AND "Premium Newsletter"
+
+```php
+$rules = [
+    [
+        'field' => 'subscribed_to_product',
+        'operator' => 'equals',
+        'value' => 5 // Premium Newsletter
+    ],
+    [
+        'field' => 'subscribed_to_product',
+        'operator' => 'equals',
+        'value' => 8 // Webinar Access
+    ]
+];
+
+// Generated Query:
+User::whereHas('productSubscriptions', fn($q) =>
+        $q->where('product_id', 5)->where('is_active', true)
+    )
+    ->whereHas('productSubscriptions', fn($q) =>
+        $q->where('product_id', 8)->where('is_active', true)
+    )
+    ->get();
+```
+
+**Segment Type:** Dynamic Tag
+**Matching Logic:** User must be subscribed to ALL specified products
+
+---
+
+#### Pattern 4: Product Exclusion (NOT Subscribed)
+
+**Use Case:** Send upsell campaign to users NOT subscribed to "Premium Newsletter"
+
+```php
+$rules = [
+    [
+        'field' => 'tier',
+        'operator' => 'in',
+        'value' => ['pro', 'enterprise']
+    ],
+    [
+        'field' => 'not_subscribed_to_product',
+        'operator' => 'equals',
+        'value' => 5 // Premium Newsletter
+    ]
+];
+
+// Generated Query:
+User::whereHas('organization.tier', fn($q) =>
+        $q->whereIn('name', ['pro', 'enterprise'])
+    )
+    ->whereDoesntHave('productSubscriptions', fn($q) =>
+        $q->where('product_id', 5)->where('is_active', true)
+    )
+    ->get();
+```
+
+**Use Case:** Upsell campaigns for paid users who haven't opted into premium features
+**Segment Type:** Dynamic Tag
+
+---
+
+#### Pattern 5: Win-Back Campaign (Opted-Out Users)
+
+**Use Case:** Re-engage users who unsubscribed from "Webinar Access" in last 90 days
+
+```php
+$rules = [
+    [
+        'field' => 'opted_out_of_product',
+        'operator' => 'equals',
+        'value' => 8 // Webinar Access
+    ],
+    [
+        'field' => 'unsubscribed_within_days',
+        'operator' => 'less_than',
+        'value' => 90
+    ]
+];
+
+// Generated Query:
+User::whereHas('productSubscriptions', fn($q) =>
+        $q->where('product_id', 8)
+          ->where('is_active', false)
+          ->whereNotNull('unsubscribed_at')
+          ->where('unsubscribed_at', '>', now()->subDays(90))
+    )
+    ->get();
+```
+
+**UI Badge:** Show "Opted Out" badge with unsubscribed date
+**Campaign Message:** "We noticed you unsubscribed from Webinar Access. Here's what's new..."
+**Segment Type:** Dynamic Tag
+
+---
+
+#### Pattern 6: Product Count Threshold
+
+**Use Case:** Send "Power User" campaign to users with 3+ active product subscriptions
+
+```php
+$rules = [
+    [
+        'field' => 'active_products_count',
+        'operator' => 'greater_than_or_equal',
+        'value' => 3
+    ]
+];
+
+// Generated Query:
+User::has('productSubscriptions', '>=', 3)->get();
+```
+
+**Use Case:** Gamification, VIP recognition, exclusive offers
+**Segment Type:** Dynamic Tag
+
+---
+
+#### Pattern 7: Tier + Product Combination
+
+**Use Case:** Send "Pro Feature Spotlight" to Pro users who haven't opted into any premium products
+
+```php
+$rules = [
+    [
+        'field' => 'tier',
+        'operator' => 'equals',
+        'value' => 'pro'
+    ],
+    [
+        'field' => 'active_products_count',
+        'operator' => 'equals',
+        'value' => 0
+    ]
+];
+
+// Generated Query:
+User::whereHas('organization.tier', fn($q) =>
+        $q->where('name', 'pro')
+    )
+    ->has('productSubscriptions', '=', 0)
+    ->get();
+```
+
+**Conversion Goal:** Increase product adoption among paid users
+**Segment Type:** Dynamic Tag
+
+---
+
+#### Pattern 8: Timeline-Based Product Filtering
+
+**Use Case:** Send "New Subscriber Welcome" to users who subscribed in last 7 days
+
+```php
+$rules = [
+    [
+        'field' => 'subscribed_to_product',
+        'operator' => 'equals',
+        'value' => 5 // Premium Newsletter
+    ],
+    [
+        'field' => 'subscription_created_within_days',
+        'operator' => 'less_than_or_equal',
+        'value' => 7
+    ]
+];
+
+// Generated Query:
+User::whereHas('productSubscriptions', fn($q) =>
+        $q->where('product_id', 5)
+          ->where('is_active', true)
+          ->where('subscribed_at', '>', now()->subDays(7))
+    )
+    ->get();
+```
+
+**Segment Type:** Dynamic Tag
+**Campaign Type:** Automated welcome series (could be recurring daily job)
+
+---
+
+### Performance Comparison: Persistent vs Dynamic
+
+| Segment Complexity | Persistent Segment | Dynamic Tag | Recommended |
+|-------------------|-------------------|-------------|-------------|
+| Single product filter | ❌ Not possible | ✅ 0.2-0.5s | Dynamic Tag |
+| Multi-product OR | ❌ Not possible | ✅ 0.3-0.7s | Dynamic Tag |
+| Multi-product AND | ❌ Not possible | ✅ 0.5-1.2s | Dynamic Tag |
+| Product + Tier | ❌ Not possible | ✅ 0.4-0.9s | Dynamic Tag |
+| Product + Activity | ❌ Not possible | ✅ 0.6-1.5s | Dynamic Tag |
+
+**Conclusion:** ALL product subscription filtering MUST use Dynamic Tag approach.
+
+### Database Indexes Required
+
+```php
+// database/migrations/YYYY_MM_DD_add_product_subscription_indexes.php
+
+Schema::table('user_product_subscription', function (Blueprint $table) {
+    // Composite index for active subscription queries
+    $table->index(['user_id', 'is_active'], 'idx_user_active');
+    $table->index(['product_id', 'is_active'], 'idx_product_active');
+    $table->index(['user_id', 'product_id', 'is_active'], 'idx_user_product_active');
+
+    // Index for opted-out user queries (win-back campaigns)
+    $table->index('unsubscribed_at', 'idx_unsubscribed_at');
+
+    // Index for timeline-based queries
+    $table->index('subscribed_at', 'idx_subscribed_at');
+});
+```
+
+**Performance Impact:**
+- Without indexes: 5-10s query time for 60K users
+- With indexes: 0.2-1.5s query time for 60K users
+- **Indexes are MANDATORY for production**
+
+### UI Workflow: Product Filtering in Segment Builder
+
+#### Field Selection Dropdown
+
+```blade
+<optgroup label="Products">
+    <option value="subscribed_to_product">Subscribed to Product</option>
+    <option value="not_subscribed_to_product">NOT Subscribed to Product</option>
+    <option value="opted_out_of_product">Opted Out of Product</option>
+    <option value="active_products_count">Active Products Count</option>
+</optgroup>
+```
+
+#### Dynamic Value Input (Multi-Product Selection)
+
+```blade
+@if($rule['field'] === 'subscribed_to_product' && $rule['operator'] === 'in')
+    <div class="space-y-2">
+        @foreach($products as $product)
+            <label class="flex items-center">
+                <flux:checkbox
+                    wire:model.live="rules.{{ $ruleIndex }}.value"
+                    value="{{ $product->id }}"
+                />
+                <span class="ml-2">{{ $product->name }}</span>
+            </label>
+        @endforeach
+    </div>
+@endif
+```
+
+#### Live Preview with Product Context
+
+```blade
+<div class="bg-white dark:bg-zinc-800 rounded-lg p-4">
+    <h3 class="font-semibold mb-2">Live Preview</h3>
+    <div wire:poll.2s>
+        <p class="text-2xl font-bold">{{ number_format($matchingUsersCount) }} users</p>
+    </div>
+
+    <div class="mt-4">
+        <h4 class="text-sm font-medium mb-2">Sample Users (First 5)</h4>
+        @foreach($sampleUsers as $user)
+            <div class="flex items-center justify-between py-2 border-b">
+                <div>
+                    <p class="font-medium">{{ $user->name }}</p>
+                    <p class="text-xs text-gray-500">{{ $user->email }}</p>
+                </div>
+                <div class="text-xs">
+                    @foreach($user->productSubscriptions->where('is_active', true) as $sub)
+                        <span class="bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                            {{ $sub->product->name }}
+                        </span>
+                    @endforeach
+                </div>
+            </div>
+        @endforeach
+    </div>
+</div>
+```
+
+### API Call Impact
+
+```
+Scenario: Send campaign to 5,000 users subscribed to "Premium Newsletter"
+
+Without Product Filtering (Persistent Segment):
+├── Not possible - CM cannot filter by product subscriptions
+└── Would require manual CSV export → import → send
+
+With Product Filtering (Dynamic Tag):
+├── Step 1: CDP query execution (0.4s)
+├── Step 2: Tag 5,000 users in CM (5 API calls, 5-7s)
+├── Step 3: Create CM segment (1 API call, 1s)
+├── Step 4: Send campaign (2 API calls, 2s)
+├── Step 5: Cleanup tag (5 API calls, 5-7s, delayed 2 hours)
+└── Total: 13 API calls, ~15 seconds (+ delayed cleanup)
+
+Monthly Impact (10 product-based campaigns):
+└── ~130 API calls/month for product filtering campaigns
+```
+
+### Testing Checklist
+
+```php
+// tests/Feature/ProductFilteringTest.php
+
+it('filters users subscribed to single product', function () {
+    $product = Product::factory()->create();
+    $subscribedUser = User::factory()->create();
+    $subscribedUser->productSubscriptions()->attach($product, ['is_active' => true]);
+
+    $rules = [['field' => 'subscribed_to_product', 'operator' => 'equals', 'value' => $product->id]];
+    $query = app(SegmentQueryBuilder::class)->build($rules);
+
+    expect($query->get())->toContain($subscribedUser);
+});
+
+it('filters users subscribed to multiple products (OR logic)', function () {
+    // Test implementation
+});
+
+it('filters users subscribed to multiple products (AND logic)', function () {
+    // Test implementation
+});
+
+it('excludes users not subscribed to product', function () {
+    // Test implementation
+});
+
+it('filters opted-out users for win-back campaigns', function () {
+    // Test implementation
+});
+
+it('filters users by active product count threshold', function () {
+    // Test implementation
+});
+```
+
+---
+
 ### Performance at Scale
 
 ```

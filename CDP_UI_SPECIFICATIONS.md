@@ -705,6 +705,8 @@ This is the most complex interface - a visual query builder with live preview.
                                             </optgroup>
                                             <optgroup label="Products">
                                                 <option value="subscribed_to_product">Subscribed to Product</option>
+                                                <option value="not_subscribed_to_product">NOT Subscribed to Product</option>
+                                                <option value="opted_out_of_product">Opted Out of Product</option>
                                                 <option value="active_products_count">Active Products Count</option>
                                             </optgroup>
                                             <optgroup label="Events">
@@ -745,14 +747,30 @@ This is the most complex interface - a visual query builder with live preview.
                                                 <option value="pro">Pro</option>
                                                 <option value="enterprise">Enterprise</option>
                                             </select>
-                                        @elseif($rule['field'] === 'subscribed_to_product')
-                                            <select wire:model.live="ruleGroups.{{ $groupIndex }}.rules.{{ $ruleIndex }}.value"
-                                                    class="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-neutral-700 rounded-md text-sm text-gray-900 dark:text-white">
-                                                <option value="">Select product...</option>
-                                                @foreach($products as $product)
-                                                    <option value="{{ $product->id }}">{{ $product->name }}</option>
-                                                @endforeach
-                                            </select>
+                                        @elseif(in_array($rule['field'], ['subscribed_to_product', 'not_subscribed_to_product', 'opted_out_of_product']))
+                                            @if($rule['operator'] === 'in')
+                                                <!-- Multi-Product Checkbox Selection (OR logic) -->
+                                                <div class="space-y-2 max-h-48 overflow-y-auto p-2 bg-gray-50 dark:bg-zinc-900/50 rounded border border-neutral-200 dark:border-neutral-700">
+                                                    @foreach($products as $product)
+                                                        <label class="flex items-center cursor-pointer hover:bg-gray-100 dark:hover:bg-zinc-800 p-1 rounded">
+                                                            <input type="checkbox"
+                                                                   wire:model.live="ruleGroups.{{ $groupIndex }}.rules.{{ $ruleIndex }}.value"
+                                                                   value="{{ $product->id }}"
+                                                                   class="w-4 h-4 text-blue-600 bg-white dark:bg-zinc-800 border-gray-300 dark:border-neutral-600 rounded focus:ring-blue-500">
+                                                            <span class="ml-2 text-sm text-gray-900 dark:text-white">{{ $product->name }}</span>
+                                                        </label>
+                                                    @endforeach
+                                                </div>
+                                            @else
+                                                <!-- Single Product Dropdown -->
+                                                <select wire:model.live="ruleGroups.{{ $groupIndex }}.rules.{{ $ruleIndex }}.value"
+                                                        class="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-neutral-200 dark:border-neutral-700 rounded-md text-sm text-gray-900 dark:text-white">
+                                                    <option value="">Select product...</option>
+                                                    @foreach($products as $product)
+                                                        <option value="{{ $product->id }}">{{ $product->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                            @endif
                                         @else
                                             <input type="text"
                                                    wire:model.live.debounce.500ms="ruleGroups.{{ $groupIndex }}.rules.{{ $ruleIndex }}.value"
@@ -843,24 +861,49 @@ This is the most complex interface - a visual query builder with live preview.
                 </div>
             </div>
 
-            <!-- Sample Users -->
+            <!-- Sample Users with Product Subscriptions -->
             <div>
                 <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Sample Users (First 10)</h4>
                 <div class="space-y-2 max-h-96 overflow-y-auto" wire:loading.class="opacity-50">
                     @forelse($sampleUsers as $user)
-                        <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-zinc-900 rounded-lg">
-                            <div class="flex-1">
-                                <p class="text-sm font-medium text-gray-900 dark:text-white">{{ $user->fullname }}</p>
-                                <p class="text-xs text-gray-500 dark:text-gray-400">{{ $user->email }}</p>
+                        <div class="p-3 bg-gray-50 dark:bg-zinc-900 rounded-lg">
+                            <!-- User Info -->
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="flex-1">
+                                    <p class="text-sm font-medium text-gray-900 dark:text-white">{{ $user->fullname }}</p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ $user->email }}</p>
+                                </div>
+                                <div class="text-right">
+                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full
+                                        {{ $user->tier_name === 'free' ? 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300' : '' }}
+                                        {{ $user->tier_name === 'pro' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' : '' }}
+                                        {{ $user->tier_name === 'enterprise' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' : '' }}">
+                                        {{ ucfirst($user->tier_name ?? 'N/A') }}
+                                    </span>
+                                </div>
                             </div>
-                            <div class="text-right">
-                                <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full
-                                    {{ $user->tier_name === 'free' ? 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300' : '' }}
-                                    {{ $user->tier_name === 'pro' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' : '' }}
-                                    {{ $user->tier_name === 'enterprise' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' : '' }}">
-                                    {{ ucfirst($user->tier_name ?? 'N/A') }}
-                                </span>
-                            </div>
+
+                            <!-- Product Subscriptions (if product filtering is active) -->
+                            @if($hasProductFilters && $user->productSubscriptions->isNotEmpty())
+                                <div class="flex flex-wrap gap-1 mt-2 pt-2 border-t border-gray-200 dark:border-zinc-700">
+                                    @foreach($user->productSubscriptions->where('is_active', true) as $subscription)
+                                        <span class="inline-flex items-center px-2 py-0.5 text-xs rounded bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                                            </svg>
+                                            {{ $subscription->product->name }}
+                                        </span>
+                                    @endforeach
+                                    @foreach($user->productSubscriptions->where('is_active', false)->whereNotNull('unsubscribed_at') as $subscription)
+                                        <span class="inline-flex items-center px-2 py-0.5 text-xs rounded bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                            </svg>
+                                            {{ $subscription->product->name }} (opted out)
+                                        </span>
+                                    @endforeach
+                                </div>
+                            @endif
                         </div>
                     @empty
                         <div class="text-center py-8 text-gray-400 dark:text-gray-500 text-sm">

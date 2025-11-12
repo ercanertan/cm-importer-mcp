@@ -192,7 +192,8 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 - [ ] **3.2** Build SegmentQueryBuilder service
   - File: `app/Services/SegmentQueryBuilder.php`
   - Methods: `build($rules)`, `addTierFilter()`, `addProductFilter()`, `addActivityFilter()`, `addEventFilter()`
-  - Support: Complex AND/OR logic, nested conditions
+  - Product filter types: `subscribed_to_product`, `not_subscribed_to_product`, `opted_out_of_product`, `active_products_count`
+  - Support: Complex AND/OR logic, nested conditions, multi-product IN operator
   - Output: Eloquent query builder instance
 
 - [ ] **3.3** Create segment type decision logic
@@ -211,13 +212,16 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 - [ ] **3.5** Build visual rule builder interface
   - UI: Add rule groups (AND/OR logic), drag-drop conditions
   - Rule types: Tier, Product, Activity Score, Event Attendance, Last Login, Custom Fields
+  - Product filter types: Subscribed to Product, NOT Subscribed to Product, Opted Out of Product, Active Products Count
   - Operators: Equals, Not Equals, Greater Than, Less Than, In, Not In
+  - Multi-product UI: Checkbox list when operator is "In" for product filters
   - Flux components: `<flux:input>` for values, `<flux:select>` for operators
 
 - [ ] **3.6** Add live segment preview with user count
   - Preview panel: Right sidebar showing matching user count
   - Real-time: `wire:model.live.debounce.1s` on rule changes → recalculate
   - Sample users: Show first 10 matching users (name, email, tier, scores)
+  - Product subscription preview: Show product subscriptions for sample users
   - Estimate: "~2,345 users match these criteria" with refresh button
 
 - [ ] **3.7** Create segment save/edit modal
@@ -485,7 +489,8 @@ This is the complete implementation checklist for the B2B Multi-Org CDP with Cam
 - [ ] **6.1** Add database indexes for performance
   - Users: Index on `activity_score_7d`, `activity_score_30d`, `last_login_at`, `cm_status`, `cm_synced_at`
   - Organizations: Index on `tier_id`, `is_active`
-  - User_product_subscription: Composite index on `user_id, is_active`
+  - User_product_subscription: Composite indexes on `(user_id, is_active)`, `(product_id, is_active)`, `(user_id, product_id, is_active)`
+  - User_product_subscription: Index on `unsubscribed_at` for opted-out filtering
   - Segments: Index on `type`, `is_active`
   - Campaigns: Index on `status`, `sent_at`
 
