@@ -31,13 +31,29 @@ return new class extends Migration
 
         // Add indexes separately to avoid duplicate index errors
         Schema::table('users', function (Blueprint $table) {
-            $sm = Schema::getConnection()->getDoctrineSchemaManager();
-            $indexes = $sm->listTableIndexes('users');
+            // Check if index exists using raw SQL query (Laravel 11+ compatible)
+            $connection = Schema::getConnection();
+            $schemaName = $connection->getDatabaseName();
 
-            if (!isset($indexes['users_cm_subscriber_id_index'])) {
+            // Check cm_subscriber_id index
+            $indexExists = $connection->select(
+                "SELECT COUNT(*) as count FROM information_schema.statistics
+                WHERE table_schema = ? AND table_name = 'users' AND index_name = 'users_cm_subscriber_id_index'",
+                [$schemaName]
+            );
+
+            if ($indexExists[0]->count == 0) {
                 $table->index('cm_subscriber_id');
             }
-            if (!isset($indexes['users_cm_status_index'])) {
+
+            // Check cm_status index
+            $indexExists = $connection->select(
+                "SELECT COUNT(*) as count FROM information_schema.statistics
+                WHERE table_schema = ? AND table_name = 'users' AND index_name = 'users_cm_status_index'",
+                [$schemaName]
+            );
+
+            if ($indexExists[0]->count == 0) {
                 $table->index('cm_status');
             }
         });
