@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\CampaignMonitorImportController;
+use App\Http\Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 use Livewire\Volt\Volt;
@@ -9,7 +10,8 @@ Route::get('/', function () {
     return view('welcome');
 })->name('home');
 
-Route::view('dashboard', 'dashboard')
+// Smart dashboard redirect based on user role
+Route::get('/dashboard', DashboardController::class)
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
 
@@ -44,3 +46,8 @@ Route::prefix('campaign-monitor')->name('campaign-monitor.')->group(function () 
 });
 
 require __DIR__.'/auth.php';
+
+// Role-based route files
+require __DIR__.'/super-admin.php';
+require __DIR__.'/org-admin.php';
+require __DIR__.'/user.php';

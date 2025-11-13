@@ -24,6 +24,8 @@ class User extends Authenticatable
         'fullname',
         'email',
         'password',
+        'role',
+        'organization_id',
         'cm_subscriber_id',
         'cm_status',
         'cm_subscribed_at',
@@ -232,5 +234,112 @@ class User extends Authenticatable
     public function updateLastLogin(): void
     {
         $this->update(['last_login_at' => now()]);
+    }
+
+    /**
+     * Organization relationships
+     */
+    public function primaryOrganization()
+    {
+        return $this->belongsTo(Organization::class, 'organization_id');
+    }
+
+    public function organizations()
+    {
+        return $this->belongsToMany(Organization::class, 'organization_user')
+                    ->withPivot(['role', 'is_active', 'joined_at', 'left_at'])
+                    ->withTimestamps();
+    }
+
+    public function activeOrganizations()
+    {
+        return $this->organizations()->wherePivot('is_active', true);
+    }
+
+    /**
+     * Role checking methods
+     */
+    public function isSuperAdmin(): bool
+    {
+        return $this->role === 'super_admin';
+    }
+
+    public function isOrgAdmin(): bool
+    {
+        return $this->role === 'org_admin';
+    }
+
+    public function isUser(): bool
+    {
+        return $this->role === 'user';
+    }
+
+    public function hasRole(string $role): bool
+    {
+        return $this->role === $role;
+    }
+
+    public function hasAnyRole(array $roles): bool
+    {
+        return in_array($this->role, $roles);
+    }
+
+    /**
+     * Organization membership checks
+     */
+    public function isAdminOf(Organization $organization): bool
+    {
+        return $this->activeOrganizations()
+                    ->wherePivot('organization_id', $organization->id)
+                    ->wherePivot('role', 'admin')
+                    ->exists();
+    }
+
+    public function isMemberOf(Organization $organization): bool
+    {
+        return $this->activeOrganizations()
+                    ->wherePivot('organization_id', $organization->id)
+                    ->exists();
+    }
+
+    public function canAccessOrganization(Organization $organization): bool
+    {
+        // Super admins can access all organizations
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        // Org admins and users can only access organizations they're members of
+        return $this->isMemberOf($organization);
+    }
+
+    /**
+     * Role scopes
+     */
+    public function scopeSuperAdmins($query)
+    {
+        return $query->where('role', 'super_admin');
+    }
+
+    public function scopeOrgAdmins($query)
+    {
+        return $query->where('role', 'org_admin');
+    }
+
+    public function scopeUsers($query)
+    {
+        return $query->where('role', 'user');
+    }
+
+    public function scopeByRole($query, string $role)
+    {
+        return $query->where('role', $role);
+    }
+
+    public function scopeInOrganization($query, $organizationId)
+    {
+        return $query->whereHas('activeOrganizations', function ($q) use ($organizationId) {
+            $q->where('organization_id', $organizationId);
+        });
     }
 }
