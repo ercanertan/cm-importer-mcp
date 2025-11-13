@@ -12,14 +12,34 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->string('cm_subscriber_id')->nullable()->unique()->comment('Campaign Monitor Subscriber ID');
-            $table->enum('cm_status', ['active', 'unsubscribed', 'bounced', 'deleted'])->default('active');
-            $table->timestamp('cm_subscribed_at')->nullable();
-            $table->timestamp('cm_unsubscribed_at')->nullable();
-            $table->softDeletes();
+            if (!Schema::hasColumn('users', 'cm_subscriber_id')) {
+                $table->string('cm_subscriber_id')->nullable()->unique()->comment('Campaign Monitor Subscriber ID');
+            }
+            if (!Schema::hasColumn('users', 'cm_status')) {
+                $table->enum('cm_status', ['active', 'unsubscribed', 'bounced', 'deleted'])->default('active');
+            }
+            if (!Schema::hasColumn('users', 'cm_subscribed_at')) {
+                $table->timestamp('cm_subscribed_at')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'cm_unsubscribed_at')) {
+                $table->timestamp('cm_unsubscribed_at')->nullable();
+            }
+            if (!Schema::hasColumn('users', 'deleted_at')) {
+                $table->softDeletes();
+            }
+        });
 
-            $table->index('cm_subscriber_id');
-            $table->index('cm_status');
+        // Add indexes separately to avoid duplicate index errors
+        Schema::table('users', function (Blueprint $table) {
+            $sm = Schema::getConnection()->getDoctrineSchemaManager();
+            $indexes = $sm->listTableIndexes('users');
+
+            if (!isset($indexes['users_cm_subscriber_id_index'])) {
+                $table->index('cm_subscriber_id');
+            }
+            if (!isset($indexes['users_cm_status_index'])) {
+                $table->index('cm_status');
+            }
         });
     }
 
